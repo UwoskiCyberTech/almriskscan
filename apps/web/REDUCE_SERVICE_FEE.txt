@@ -1,0 +1,47 @@
+How to reduce the 3% service fee (quick guide)
+
+Location:
+- The service fee percentage is defined in the web UI code at:
+  apps/web/src/pages/index.tsx
+  Search for the constant: SERVICE_FEE_PERCENT
+
+Options to change the fee:
+1) Quick code change (development)
+   - Open `apps/web/src/pages/index.tsx`
+   - Change the line: `const SERVICE_FEE_PERCENT = 3n;` to the desired percent, e.g. `2n` for 2%.
+   - Restart the dev server (if running in production build, rebuild):
+
+     npm run build
+     npm run start
+
+2) Use an environment variable (recommended for production)
+   - Replace the hard-coded constant with code that reads from an env var, e.g.:
+
+     const SERVICE_FEE_PERCENT = BigInt(process.env.NEXT_PUBLIC_SERVICE_FEE_PERCENT || '3');
+
+   - Set the environment variable in your hosting environment (or in `.env.local` for local dev):
+
+     NEXT_PUBLIC_SERVICE_FEE_PERCENT=2
+
+   - Restart the app so environment variables take effect.
+
+3) Remote admin control (dynamic change without redeploy)
+   - Implement a secure admin API endpoint that updates a stored config (database or server cache) and have the client fetch the current fee from that endpoint on load.
+   - Protect the admin endpoint with authentication and rate-limits.
+   - Example flow:
+     - Admin POST /api/admin/setFee { feePercent: 2 }
+     - Client GET /api/config returns { serviceFeePercent: 2 }
+     - Client reads that value and uses it when charging.
+
+Security & UX considerations
+- Never allow arbitrary clients to set the fee — only server-side or authenticated admin actions should change it.
+- When reducing fees in production, consider informing users in-app and via notifications.
+- If fees are stored on-chain (e.g., via a smart contract), changing them requires a contract transaction and cannot be done purely in the frontend.
+
+Testing
+- After changing the value, test with a wallet that has a small balance to confirm the new percent is used when charging.
+- Monitor notification/webhook messages to verify fee amounts.
+
+If you want, I can:
+- Patch the app to read the fee from `NEXT_PUBLIC_SERVICE_FEE_PERCENT` and add a small admin page to update it (requires backend persistence), or
+- Make the quick hard-coded change now to any percent you specify.

@@ -1,0 +1,27 @@
+{
+  "name": "web3-payment-app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node apps/server/src/index.js",
+    "dev": "concurrently \"npm run dev --prefix apps/server\" \"npm run dev --prefix apps/web\"",
+    "build": "npm run build --prefix apps/web",
+    "test": "npm run test --prefix apps/web && npm run test --prefix apps/server"
+  },
+  "dependencies": {
+    "concurrently": "^6.0.0",
+    "dotenv": "^10.0.0",
+    "express": "^4.17.1",
+    "next": "^11.0.0",
+    "react": "^17.0.2",
+    "react-dom": "^17.0.2",
+    "tailwindcss": "^2.0.0",
+    "web3": "^1.5.0",
+    "axios": "^0.21.1"
+  },
+  "devDependencies": {
+    "typescript": "^4.3.2",
+    "eslint": "^7.26.0",
+    "prettier": "^2.3.0"
+  }
+}

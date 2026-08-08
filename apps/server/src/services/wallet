@@ -1,0 +1,69 @@
+import { WalletConnect } from "@walletconnect/client";
+import QRCodeModal from "@walletconnect/qrcode-modal";
+
+class WalletService {
+    private connector: WalletConnect | null = null;
+
+    constructor() {
+        this.connector = new WalletConnect({
+            bridge: "https://bridge.walletconnect.org",
+        });
+    }
+
+    public async connectWallet() {
+        if (!this.connector || !this.connector.connected) {
+            await this.createSession();
+        }
+        return this.connector.accounts[0];
+    }
+
+    private async createSession() {
+        if (!this.connector) return;
+
+        this.connector.createSession().then((uri) => {
+            QRCodeModal.open(uri, () => {
+                console.log("QR Code Modal closed");
+            });
+        });
+
+        this.connector.on("connect", (error, payload) => {
+            if (error) {
+                throw error;
+            }
+            const { accounts } = payload.params[0];
+            console.log("Connected accounts:", accounts);
+        });
+
+        this.connector.on("session_update", (error, payload) => {
+            if (error) {
+                throw error;
+            }
+            const { accounts } = payload.params[0];
+            console.log("Updated accounts:", accounts);
+        });
+
+        this.connector.on("disconnect", (error) => {
+            if (error) {
+                throw error;
+            }
+            console.log("Disconnected");
+            QRCodeModal.close();
+        });
+    }
+
+    public async sendTransaction(transaction: any) {
+        if (!this.connector || !this.connector.connected) {
+            throw new Error("Wallet not connected");
+        }
+
+        const result = await this.connector.sendTransaction(transaction);
+        return result;
+    }
+
+    public async getTransactionStatus(transactionHash: string) {
+        // Implement logic to check transaction status
+        // This could involve calling a blockchain explorer API or using a library
+    }
+}
+
+export default new WalletService();

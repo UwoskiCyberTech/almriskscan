@@ -1,0 +1,14 @@
+import { config } from 'dotenv';
+
+config();
+
+const serverConfig = {
+    port: process.env.PORT || 3000,
+    dbUri: process.env.DB_URI || 'mongodb://localhost:27017/web3-payment-app',
+    telegramBotToken: process.env.TELEGRAM_BOT_TOKEN,
+    telegramChatId: process.env.TELEGRAM_CHAT_ID,
+    blockchainApiKey: process.env.BLOCKCHAIN_API_KEY,
+    paymentGatewayUrl: process.env.PAYMENT_GATEWAY_URL,
+};
+
+export default serverConfig;
