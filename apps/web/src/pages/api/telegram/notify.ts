@@ -1,20 +1,5 @@
 import path from 'path';
 import type { NextApiRequest, NextApiResponse } from 'next';
-import dotenv from 'dotenv';
-
-const loadTelegramEnv = () => {
-  const candidates = [
-    path.resolve(process.cwd(), '.env'),
-    path.resolve(process.cwd(), '..', '.env'),
-    path.resolve(process.cwd(), '..', '..', '.env'),
-  ];
-
-  candidates.forEach((candidate) => {
-    dotenv.config({ path: candidate });
-  });
-};
-
-loadTelegramEnv();
 
 export default async function handler(
   req: NextApiRequest,
