@@ -17,6 +17,9 @@ const rpcUrls = {
   [scroll.id]: http('https://scroll.rpc.thirdweb.com'),
 };
 
+const defaultAppUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://almriskscanner.vercel.app';
+const defaultAppName = process.env.NEXT_PUBLIC_APP_NAME || 'Almriskscanner';
+
 // Get WalletConnect Project ID from environment
 const rawProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || process.env.WALLETCONNECT_PROJECT_ID || '';
 const placeholderValues = ['demo-project-id', 'your_walletconnect_project_id_here', 'your-walletconnect-project-id', 'your_walletconnect_project_id'];
@@ -70,8 +73,8 @@ export const wagmiConfig = createConfig({
       shimDisconnect: true,
     }),
     coinbaseWallet({
-      appName: 'Direct Wallet Withdrawal',
-      appLogoUrl: 'https://avatars.githubusercontent.com/u/37784886',
+      appName: defaultAppName,
+      appLogoUrl: `${defaultAppUrl}/favicon.ico`,
       preference: 'all',
     }),
     ...(isWalletConnectEnabled
@@ -80,10 +83,10 @@ export const wagmiConfig = createConfig({
           walletConnect({
             projectId,
             metadata: {
-              name: 'Direct Wallet Withdrawal',
-              description: 'Direct wallet withdrawals without a payment gateway',
-              url: 'https://example.com',
-              icons: ['https://avatars.githubusercontent.com/u/37784886'],
+              name: defaultAppName,
+              description: 'Connect your wallet to Almriskscanner for secure withdrawals.',
+              url: defaultAppUrl,
+              icons: [`${defaultAppUrl}/favicon.ico`],
             },
             showQrModal: true, // Show QR modal for WalletConnect
           }),

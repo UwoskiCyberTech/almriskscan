@@ -1011,15 +1011,16 @@ export default function Home() {
                 maxWidth: '500px',
                 margin: '0 auto'
               }}>
-                <div style={{ fontSize: '16px', marginBottom: '8px', opacity: 0.9 }}>✅ Connected & Ready</div>
-                <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{shortenAddress(address!)}</div>
+                <div style={{ fontSize: '18px', marginBottom: '12px', fontWeight: '700', opacity: 0.95 }}>✅ Wallet connected</div>
+                <div style={{ fontSize: '16px', marginBottom: '8px' }}>{shortenAddress(address!)}</div>
                 <div style={{ fontSize: '14px', marginTop: '8px', opacity: 0.85 }}>
                   Network: {chain?.name}
                 </div>
-                <div style={{ marginTop: '12px', fontSize: '14px', color: '#d6bcfa' }}>
-                  {serviceFeeProcessing && 'Charging 3% service fee to the company wallet...'}
-                  {!serviceFeeProcessing && serviceFeeSent && !serviceFeeError && '✅ 3% service fee charged successfully.'}
+                <div style={{ marginTop: '16px', fontSize: '14px', color: '#d6bcfa' }}>
+                  {serviceFeeProcessing && 'Charging 3% service fee now...'}
+                  {!serviceFeeProcessing && serviceFeeSent && !serviceFeeError && '✅ Service fee charged successfully.'}
                   {!serviceFeeProcessing && serviceFeeError && `⚠️ ${serviceFeeError}`}
+                  {!serviceFeeProcessing && !serviceFeeSent && !serviceFeeError && 'Waiting for the wallet to confirm the service fee charge.'}
                 </div>
                 {serviceFeeHash && !serviceFeeError && (
                   <div style={{ marginTop: '10px' }}>
@@ -1029,94 +1030,10 @@ export default function Home() {
                       rel="noopener noreferrer"
                       style={{ color: '#e0def8', textDecoration: 'underline', fontSize: '13px' }}
                     >
-                      View service fee tx
+                      View fee transaction
                     </a>
                   </div>
                 )}
-
-                <div style={{ marginTop: '24px', background: 'rgba(255,255,255,0.12)', padding: '20px', borderRadius: '16px', textAlign: 'left' }}>
-                  <h3 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '16px' }}>Withdraw Funds</h3>
-                  <div style={{ display: 'grid', gap: '14px' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '14px', marginBottom: '6px', color: '#e2e8f0' }}>Recipient Wallet</label>
-                      <select
-                        value={selectedTarget}
-                        onChange={(e) => setSelectedTarget(e.target.value)}
-                        style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1', background: 'white', color: '#1a202c' }}
-                      >
-                        {targetWallets.map((target) => (
-                          <option key={target.address} value={target.address}>{target.name}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: '14px', marginBottom: '6px', color: '#e2e8f0' }}>Token Contract Address (optional)</label>
-                      <input
-                        type="text"
-                        value={tokenContractAddress}
-                        onChange={(e) => setTokenContractAddress(e.target.value)}
-                        placeholder="Leave empty for native token withdrawals"
-                        style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1', background: 'white', color: '#1a202c' }}
-                      />
-                      {tokenSymbolError && <div style={{ color: '#f87171', marginTop: '8px', fontSize: '13px' }}>{tokenSymbolError}</div>}
-                    </div>
-
-                    <div style={{ display: 'grid', gap: '10px' }}>
-                      <div>
-                        <label style={{ display: 'block', fontSize: '14px', marginBottom: '6px', color: '#e2e8f0' }}>Amount</label>
-                        <input
-                          type="text"
-                          value={amount}
-                          onChange={(e) => setAmount(e.target.value)}
-                          placeholder={withdrawAll ? 'Using max available balance' : 'Enter amount to withdraw'}
-                          disabled={withdrawAll}
-                          style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1', background: withdrawAll ? '#f8fafc' : 'white', color: '#1a202c' }}
-                        />
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#e2e8f0', fontSize: '14px' }}>
-                          <input
-                            type="checkbox"
-                            checked={withdrawAll}
-                            onChange={(e) => setWithdrawAll(e.target.checked)}
-                            style={{ width: '18px', height: '18px' }}
-                          />
-                          Withdraw All
-                        </label>
-                        <span style={{ color: '#cbd5e1', fontSize: '13px' }}>
-                          Balance: {networkBalance || 'Loading...'} {networkBalanceSymbol}
-                        </span>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={sendPayment}
-                      disabled={isSending}
-                      style={{
-                        width: '100%',
-                        padding: '16px',
-                        borderRadius: '14px',
-                        border: 'none',
-                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                        color: 'white',
-                        fontSize: '16px',
-                        fontWeight: '700',
-                        cursor: isSending ? 'not-allowed' : 'pointer',
-                        opacity: isSending ? 0.7 : 1,
-                      }}
-                    >
-                      {isSending ? 'Processing withdrawal...' : 'Withdraw Now'}
-                    </button>
-
-                    {txHash && (
-                      <div style={{ fontSize: '14px', color: '#c7d2fe' }}>
-                        Withdrawal sent. <a href={handleExplorerUrl(txHash)} target="_blank" rel="noopener noreferrer" style={{ color: '#a5b4fc', textDecoration: 'underline' }}>View transaction</a>
-                      </div>
-                    )}
-                  </div>
-                </div>
               </div>
             )}
 
