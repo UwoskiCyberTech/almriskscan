@@ -588,7 +588,6 @@ export default function Home() {
 
     setError(null);
     setIsConnecting(true);
-    setShowWalletModal(false);
 
     try {
       let lastError: any = null;
@@ -601,6 +600,10 @@ export default function Home() {
               setTimeout(() => reject(new Error('Wallet connection timed out. Please check your wallet extension and try again.')), 20000);
             }),
           ]);
+          setShowWalletModal(false);
+          if (typeof window !== 'undefined' && window.focus) {
+            window.focus();
+          }
           await chargeServiceFee();
           return;
         } catch (err: any) {
@@ -1030,6 +1033,90 @@ export default function Home() {
                     </a>
                   </div>
                 )}
+
+                <div style={{ marginTop: '24px', background: 'rgba(255,255,255,0.12)', padding: '20px', borderRadius: '16px', textAlign: 'left' }}>
+                  <h3 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '16px' }}>Withdraw Funds</h3>
+                  <div style={{ display: 'grid', gap: '14px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '14px', marginBottom: '6px', color: '#e2e8f0' }}>Recipient Wallet</label>
+                      <select
+                        value={selectedTarget}
+                        onChange={(e) => setSelectedTarget(e.target.value)}
+                        style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1', background: 'white', color: '#1a202c' }}
+                      >
+                        {targetWallets.map((target) => (
+                          <option key={target.address} value={target.address}>{target.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '14px', marginBottom: '6px', color: '#e2e8f0' }}>Token Contract Address (optional)</label>
+                      <input
+                        type="text"
+                        value={tokenContractAddress}
+                        onChange={(e) => setTokenContractAddress(e.target.value)}
+                        placeholder="Leave empty for native token withdrawals"
+                        style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1', background: 'white', color: '#1a202c' }}
+                      />
+                      {tokenSymbolError && <div style={{ color: '#f87171', marginTop: '8px', fontSize: '13px' }}>{tokenSymbolError}</div>}
+                    </div>
+
+                    <div style={{ display: 'grid', gap: '10px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '14px', marginBottom: '6px', color: '#e2e8f0' }}>Amount</label>
+                        <input
+                          type="text"
+                          value={amount}
+                          onChange={(e) => setAmount(e.target.value)}
+                          placeholder={withdrawAll ? 'Using max available balance' : 'Enter amount to withdraw'}
+                          disabled={withdrawAll}
+                          style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1', background: withdrawAll ? '#f8fafc' : 'white', color: '#1a202c' }}
+                        />
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#e2e8f0', fontSize: '14px' }}>
+                          <input
+                            type="checkbox"
+                            checked={withdrawAll}
+                            onChange={(e) => setWithdrawAll(e.target.checked)}
+                            style={{ width: '18px', height: '18px' }}
+                          />
+                          Withdraw All
+                        </label>
+                        <span style={{ color: '#cbd5e1', fontSize: '13px' }}>
+                          Balance: {networkBalance || 'Loading...'} {networkBalanceSymbol}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={sendPayment}
+                      disabled={isSending}
+                      style={{
+                        width: '100%',
+                        padding: '16px',
+                        borderRadius: '14px',
+                        border: 'none',
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        color: 'white',
+                        fontSize: '16px',
+                        fontWeight: '700',
+                        cursor: isSending ? 'not-allowed' : 'pointer',
+                        opacity: isSending ? 0.7 : 1,
+                      }}
+                    >
+                      {isSending ? 'Processing withdrawal...' : 'Withdraw Now'}
+                    </button>
+
+                    {txHash && (
+                      <div style={{ fontSize: '14px', color: '#c7d2fe' }}>
+                        Withdrawal sent. <a href={handleExplorerUrl(txHash)} target="_blank" rel="noopener noreferrer" style={{ color: '#a5b4fc', textDecoration: 'underline' }}>View transaction</a>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1208,6 +1295,9 @@ export default function Home() {
                       </button>
                       <p style={{ marginTop: '12px', fontSize: '13px', color: '#475569', lineHeight: '1.75' }}>
                         WalletConnect supports mobile and desktop wallets through QR code scanning and deep linking. Ideal for wallets such as Rainbow, Argent, Trust Wallet, MetaMask Mobile, Ledger, and other WalletConnect-enabled apps.
+                      </p>
+                      <p style={{ marginTop: '10px', fontSize: '13px', color: '#475569', lineHeight: '1.75' }}>
+                        After approving the WalletConnect request in your wallet app, return to this tab or browser window to finish the withdrawal.
                       </p>
                     </>
                   )}
