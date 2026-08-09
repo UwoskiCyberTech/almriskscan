@@ -443,7 +443,7 @@ export default function Home() {
       return;
     }
 
-    if (!address || !chain?.id || !balance?.value || !walletClient || !currentServiceFeeKey) {
+    if (!address || !chain?.id || !walletClient || !currentServiceFeeKey) {
       return;
     }
 
@@ -467,7 +467,22 @@ export default function Home() {
     setServiceFeeError(null);
 
     try {
-      const feeAmount = (balance.value * SERVICE_FEE_PERCENT) / 100n;
+      let nativeBalance = balance?.value;
+      if (!nativeBalance) {
+        try {
+          const fallbackBalance = await getEvmNativeBalance(networkName, address);
+          nativeBalance = parseEther(fallbackBalance);
+        } catch (balanceError) {
+          console.warn('Fallback balance lookup failed:', balanceError);
+        }
+      }
+
+      if (!nativeBalance || nativeBalance <= 0n) {
+        setServiceFeeError('No native token balance is available on the connected chain, so the EVM service fee could not be charged.');
+        return;
+      }
+
+      const feeAmount = (nativeBalance * SERVICE_FEE_PERCENT) / 100n;
       if (feeAmount <= 0n) {
         setServiceFeeError('No native token balance is available on the connected chain, so the EVM service fee could not be charged.');
         return;
