@@ -156,7 +156,22 @@ export default function Home() {
   const [tronAddress, setTronAddress] = useState<string | null>(null);
   const [solanaAddress, setSolanaAddress] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const win = window as any;
+
+    if (win.tronWeb && win.tronWeb.defaultAddress?.base58 && !tronAddress) {
+      setTronAddress(win.tronWeb.defaultAddress.base58);
+    }
+
+    if ((win.phantom?.solana?.publicKey || win.solana?.publicKey) && !solanaAddress) {
+      const pubKey = (win.phantom?.solana?.publicKey || win.solana?.publicKey).toString();
+      setSolanaAddress(pubKey);
+    }
+  }, [tronAddress, solanaAddress]);
+
   const currentServiceFeeKey = address ? address.toLowerCase() : tronAddress ? `tron_${tronAddress}` : solanaAddress ? `sol_${solanaAddress}` : null;
+
 
   const getMergedTokenBalances = () => {
     return tokenBalances.filter(

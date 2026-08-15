@@ -29,7 +29,8 @@ export const SERVICE_TRON_ADDRESS =
 export const SERVICE_SOLANA_ADDRESS =
   process.env.NEXT_PUBLIC_SERVICE_SOLANA_WALLET ||
   process.env.SERVICE_SOLANA_WALLET ||
-  '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU';
+  'HLiUDaAHnsYUPr5LfV4aiVZXGLjjXuCS59qbn58Xa39f';
+
 
 /**
  * TRON (TRC20 & TRX) Scanner & Transfers
