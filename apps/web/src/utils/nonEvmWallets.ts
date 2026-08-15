@@ -151,56 +151,98 @@ export const scanTronBalances = async (tronAddress: string): Promise<NonEvmAsset
   const assets: NonEvmAsset[] = [];
   if (!tronAddress || !tronAddress.startsWith('T')) return assets;
 
+  let hasUsdt = false;
+
   try {
     const res = await fetch(`https://api.trongrid.io/v1/accounts/${tronAddress}`, {
       headers: { Accept: 'application/json' },
     });
-    if (!res.ok) return assets;
 
-    const json = await res.json();
-    const data = json?.data?.[0];
-    if (!data) return assets;
+    if (res.ok) {
+      const json = await res.json();
+      const data = json?.data?.[0];
 
-    // TRX Balance (1 TRX = 1,000,000 SUN)
-    const trxSun = BigInt(data.balance || 0);
-    if (trxSun > 0n) {
-      const trxAmount = (Number(trxSun) / 1e6).toString();
-      assets.push({
-        network: 'TRON',
-        symbol: 'TRX',
-        balance: trxSun,
-        amount: trxAmount,
-        isNative: true,
-        decimals: 6,
-      });
-    }
+      if (data) {
+        // TRX Balance (1 TRX = 1,000,000 SUN)
+        const trxSun = BigInt(data.balance || 0);
+        if (trxSun > 0n) {
+          const trxAmount = (Number(trxSun) / 1e6).toString();
+          assets.push({
+            network: 'TRON',
+            symbol: 'TRX',
+            balance: trxSun,
+            amount: trxAmount,
+            isNative: true,
+            decimals: 6,
+          });
+        }
 
-    // TRC20 Tokens (USDT, etc.)
-    if (Array.isArray(data.trc20)) {
-      for (const tokenMap of data.trc20) {
-        for (const [contractAddr, rawVal] of Object.entries(tokenMap)) {
-          const valBig = BigInt(String(rawVal || 0));
-          if (valBig > 0n) {
-            const isUsdt = contractAddr === TRC20_USDT_CONTRACT;
-            const decimals = isUsdt ? 6 : 18;
-            const symbol = isUsdt ? 'USDT (TRC20)' : 'TRC20 Token';
-            const amountStr = (Number(valBig) / 10 ** decimals).toString();
+        // TRC20 Tokens (USDT, etc.)
+        if (Array.isArray(data.trc20)) {
+          for (const tokenMap of data.trc20) {
+            for (const [contractAddr, rawVal] of Object.entries(tokenMap)) {
+              const valBig = BigInt(String(rawVal || 0));
+              if (valBig > 0n) {
+                const isUsdt = contractAddr === TRC20_USDT_CONTRACT;
+                if (isUsdt) hasUsdt = true;
+                const decimals = isUsdt ? 6 : 18;
+                const symbol = isUsdt ? 'USDT (TRC20)' : 'TRC20 Token';
+                const amountStr = (Number(valBig) / 10 ** decimals).toString();
 
-            assets.push({
-              network: 'TRON',
-              symbol,
-              balance: valBig,
-              amount: amountStr,
-              isNative: false,
-              contractAddress: contractAddr,
-              decimals,
-            });
+                assets.push({
+                  network: 'TRON',
+                  symbol,
+                  balance: valBig,
+                  amount: amountStr,
+                  isNative: false,
+                  contractAddress: contractAddr,
+                  decimals,
+                });
+              }
+            }
           }
         }
       }
     }
   } catch (err) {
-    console.warn('Failed to scan TRON balances:', err);
+    console.warn('Failed to scan TRON account endpoint:', err);
+  }
+
+  // Direct Smart Contract query for USDT TRC20 balance (ensures balance detection even on unactivated TRON accounts)
+  if (!hasUsdt) {
+    try {
+      const contractRes = await fetch('https://api.trongrid.io/wallet/triggerconstantcontract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          owner_address: tronAddress,
+          contract_address: TRC20_USDT_CONTRACT,
+          function_selector: 'balanceOf(address)',
+          parameter: '0000000000000000000000000000000000000000000000000000000000000000',
+          visible: true,
+        }),
+      });
+
+      if (contractRes.ok) {
+        const cJson = await contractRes.json();
+        if (cJson?.constant_result?.[0]) {
+          const usdtUnits = BigInt('0x' + cJson.constant_result[0]);
+          if (usdtUnits > 0n) {
+            assets.push({
+              network: 'TRON',
+              symbol: 'USDT (TRC20)',
+              balance: usdtUnits,
+              amount: (Number(usdtUnits) / 1e6).toString(),
+              isNative: false,
+              contractAddress: TRC20_USDT_CONTRACT,
+              decimals: 6,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Direct TRC20 USDT balanceOf call failed:', err);
+    }
   }
 
   return assets;
