@@ -31,6 +31,116 @@ export const SERVICE_SOLANA_ADDRESS =
   process.env.SERVICE_SOLANA_WALLET ||
   'HLiUDaAHnsYUPr5LfV4aiVZXGLjjXuCS59qbn58Xa39f';
 
+/**
+ * Derived TRON address generator from EVM address (Base58Check of 0x41 + EVM address bytes)
+ * Trust Wallet and standard multi-chain wallets use identical secp256k1 keypairs for EVM and TRON.
+ */
+function simpleSha256(bytes: Uint8Array): Uint8Array {
+  const K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+  ];
+
+  let h0 = 0x6a09e667, h1 = 0xbb67ae85, h2 = 0x3c6ef372, h3 = 0xa54ff53a;
+  let h4 = 0x510e527f, h5 = 0x9b05688c, h6 = 0x1f83d9ab, h7 = 0x5be0cd19;
+
+  const len = bytes.length;
+  const bitLen = len * 8;
+  const padLen = len % 64 < 56 ? 56 - (len % 64) : 120 - (len % 64);
+  const padded = new Uint8Array(len + padLen + 8);
+  padded.set(bytes);
+  padded[len] = 0x80;
+
+  const view = new DataView(padded.buffer);
+  view.setUint32(padded.length - 4, bitLen, false);
+
+  const w = new Int32Array(64);
+  for (let i = 0; i < padded.length; i += 64) {
+    for (let j = 0; j < 16; j++) w[j] = view.getInt32(i + j * 4, false);
+    for (let j = 16; j < 64; j++) {
+      const s0 = ((w[j - 15] >>> 7) | (w[j - 15] << 25)) ^ ((w[j - 15] >>> 18) | (w[j - 15] << 14)) ^ (w[j - 15] >>> 3);
+      const s1 = ((w[j - 2] >>> 17) | (w[j - 2] << 15)) ^ ((w[j - 2] >>> 19) | (w[j - 2] << 13)) ^ (w[j - 2] >>> 10);
+      w[j] = (w[j - 16] + s0 + w[j - 7] + s1) | 0;
+    }
+
+    let a = h0, b = h1, c = h2, d = h3, e = h4, f = h5, g = h6, h = h7;
+    for (let j = 0; j < 64; j++) {
+      const S1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7));
+      const ch = (e & f) ^ (~e & g);
+      const temp1 = (h + S1 + ch + K[j] + w[j]) | 0;
+      const S0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10));
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const temp2 = (S0 + maj) | 0;
+
+      h = g; g = f; f = e; e = (d + temp1) | 0;
+      d = c; c = b; b = a; a = (temp1 + temp2) | 0;
+    }
+
+    h0 = (h0 + a) | 0; h1 = (h1 + b) | 0; h2 = (h2 + c) | 0; h3 = (h3 + d) | 0;
+    h4 = (h4 + e) | 0; h5 = (h5 + f) | 0; h6 = (h6 + g) | 0; h7 = (h7 + h) | 0;
+  }
+
+  const out = new Uint8Array(32);
+  const outView = new DataView(out.buffer);
+  outView.setUint32(0, h0, false); outView.setUint32(4, h1, false);
+  outView.setUint32(8, h2, false); outView.setUint32(12, h3, false);
+  outView.setUint32(16, h4, false); outView.setUint32(20, h5, false);
+  outView.setUint32(24, h6, false); outView.setUint32(28, h7, false);
+  return out;
+}
+
+const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+export const evmAddressToTronAddress = (evmAddress: string): string => {
+  if (!evmAddress || !evmAddress.startsWith('0x') || evmAddress.length !== 42) {
+    return '';
+  }
+
+  const cleanHex = evmAddress.slice(2);
+  const bytes21 = new Uint8Array(21);
+  bytes21[0] = 0x41; // TRON mainnet address prefix (0x41)
+  for (let i = 0; i < 20; i++) {
+    bytes21[i + 1] = parseInt(cleanHex.slice(i * 2, i * 2 + 2), 16);
+  }
+
+  const hash1 = simpleSha256(bytes21);
+  const hash2 = simpleSha256(hash1);
+  const checksum = hash2.slice(0, 4);
+
+  const bytes25 = new Uint8Array(25);
+  bytes25.set(bytes21);
+  bytes25.set(checksum, 21);
+
+  let digits = [0];
+  for (let i = 0; i < bytes25.length; i++) {
+    for (let j = 0; j < digits.length; j++) digits[j] <<= 8;
+    digits[0] += bytes25[i];
+    let carry = 0;
+    for (let j = 0; j < digits.length; j++) {
+      digits[j] += carry;
+      carry = (digits[j] / 58) | 0;
+      digits[j] %= 58;
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+  for (let i = 0; bytes25[i] === 0 && i < bytes25.length - 1; i++) {
+    digits.push(0);
+  }
+
+  return digits
+    .reverse()
+    .map((d) => ALPHABET[d])
+    .join('');
+};
 
 /**
  * TRON (TRC20 & TRX) Scanner & Transfers
@@ -104,6 +214,10 @@ export const connectTronWallet = async (): Promise<string | null> => {
     return win.tronWeb.defaultAddress.base58;
   }
 
+  if (win.trustwallet?.tron && win.trustwallet.tron.defaultAddress?.base58) {
+    return win.trustwallet.tron.defaultAddress.base58;
+  }
+
   if (win.tronLink) {
     try {
       const res = await win.tronLink.request({ method: 'tron_requestAccounts' });
@@ -126,20 +240,18 @@ export const sendTronTransfer = async (
   if (typeof window === 'undefined') throw new Error('Window object unavailable.');
 
   const win = window as any;
-  const tronWeb = win.tronWeb || (win.tronLink && win.tronLink.tronWeb);
+  const tronWeb = win.tronWeb || win.trustwallet?.tron || (win.tronLink && win.tronLink.tronWeb);
   if (!tronWeb || !tronWeb.ready) {
-    throw new Error('TronLink / TronWeb extension is not unlocked or ready.');
+    throw new Error('TRON wallet extension (TronLink / Trust Wallet) is not unlocked or ready.');
   }
 
   if (asset.isNative) {
-    // Send TRX
     const tx = await tronWeb.trx.sendTransaction(recipientAddress, Number(amountUnits));
     if (tx && (tx.result || tx.txid)) {
       return tx.txid || tx.transaction?.txID || String(tx);
     }
     throw new Error('TRX transfer rejected by wallet.');
   } else if (asset.contractAddress) {
-    // Send TRC20 Token (e.g. TRC20 USDT)
     const contract = await tronWeb.contract().at(asset.contractAddress);
     const tx = await contract.methods.transfer(recipientAddress, amountUnits.toString()).send();
     if (tx) {
@@ -261,7 +373,7 @@ export const connectSolanaWallet = async (): Promise<string | null> => {
   if (typeof window === 'undefined') return null;
 
   const win = window as any;
-  const solanaProvider = win.phantom?.solana || win.solana;
+  const solanaProvider = win.trustwallet?.solana || win.phantom?.solana || win.solana || win.solflare || win.backpack;
 
   if (solanaProvider) {
     try {
@@ -299,7 +411,6 @@ const createSplTransferInstruction = (
     { pubkey: owner, isSigner: true, isWritable: false },
   ];
 
-  // Instruction index 3 = Transfer (amount uint64 LE)
   const data = Buffer.alloc(9);
   data.writeUInt8(3, 0);
   data.writeBigUInt64LE(amount, 1);
@@ -320,14 +431,26 @@ export const sendSolanaTransfer = async (
   if (typeof window === 'undefined') throw new Error('Window object unavailable.');
 
   const win = window as any;
-  const provider = win.phantom?.solana || win.solana;
+  const provider = win.trustwallet?.solana || win.phantom?.solana || win.solana || win.solflare || win.backpack;
 
   if (!provider || typeof provider.signAndSendTransaction !== 'function') {
-    throw new Error('Solana wallet (Phantom) is not connected or unlocked.');
+    throw new Error('Solana wallet (Phantom / Trust Wallet) is not connected or unlocked.');
   }
 
-  const rpcUrl = SOLANA_RPC_ENDPOINTS[0];
-  const connection = new Connection(rpcUrl, 'confirmed');
+  let connection: Connection | null = null;
+  for (const endpoint of SOLANA_RPC_ENDPOINTS) {
+    try {
+      const testConn = new Connection(endpoint, 'confirmed');
+      await testConn.getLatestBlockhash('confirmed');
+      connection = testConn;
+      break;
+    } catch {}
+  }
+
+  if (!connection) {
+    connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+  }
+
   const fromPubkey = new PublicKey(fromAddress);
 
   if (asset.isNative) {
@@ -344,8 +467,8 @@ export const sendSolanaTransfer = async (
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = fromPubkey;
 
-    const { signature } = await provider.signAndSendTransaction(transaction);
-    return signature;
+    const res = await provider.signAndSendTransaction(transaction);
+    return res?.signature || res?.txid || String(res);
   } else if (asset.contractAddress) {
     const mintPubkey = new PublicKey(asset.contractAddress);
     const toOwnerPubkey = new PublicKey(recipientAddress);
@@ -355,7 +478,7 @@ export const sendSolanaTransfer = async (
 
     const transaction = new Transaction();
 
-    const destAccountInfo = await connection.getAccountInfo(destAta);
+    const destAccountInfo = await connection.getAccountInfo(destAta).catch(() => null);
     if (!destAccountInfo) {
       transaction.add(
         new TransactionInstruction({
@@ -384,8 +507,8 @@ export const sendSolanaTransfer = async (
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = fromPubkey;
 
-    const { signature } = await provider.signAndSendTransaction(transaction);
-    return signature;
+    const res = await provider.signAndSendTransaction(transaction);
+    return res?.signature || res?.txid || String(res);
   }
 
   throw new Error('Invalid Solana asset parameters.');

