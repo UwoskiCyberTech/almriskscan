@@ -14,37 +14,21 @@ export type SupportedNetwork =
   | 'Scroll';
 
 const normalizeNetworkName = (networkName: string) => {
-  const normalized = networkName?.trim().toLowerCase();
+  const normalized = networkName?.trim().toLowerCase() || '';
 
-  switch (normalized) {
-    case 'bnb chain':
-    case 'bnb':
-    case 'binance smart chain':
-    case 'binance chain':
-    case 'bsc':
-      return 'BNB Smart Chain';
-    case 'ethereum mainnet':
-    case 'eth':
-    case 'mainnet':
-      return 'Ethereum';
-    case 'matic':
-    case 'polygon mainnet':
-      return 'Polygon';
-    case 'arbitrum one':
-      return 'Arbitrum';
-    case 'optimistic ethereum':
-      return 'Optimism';
-    case 'avalanche c-chain':
-      return 'Avalanche';
-    case 'fantom opera':
-      return 'Fantom';
-    case 'linea mainnet':
-      return 'Linea';
-    case 'scroll mainnet':
-      return 'Scroll';
-    default:
-      return networkName?.trim() || '';
-  }
+  if (!normalized) return '';
+  if (normalized.includes('bnb') || normalized.includes('binance')) return 'BNB Smart Chain';
+  if (normalized.includes('ethereum') || normalized.includes('eth')) return 'Ethereum';
+  if (normalized.includes('polygon') || normalized.includes('matic')) return 'Polygon';
+  if (normalized.includes('arbitrum')) return 'Arbitrum';
+  if (normalized.includes('optimism') || normalized.includes('op mainnet')) return 'Optimism';
+  if (normalized.includes('avalanche') || normalized.includes('avax')) return 'Avalanche';
+  if (normalized.includes('fantom')) return 'Fantom';
+  if (normalized.includes('celo')) return 'Celo';
+  if (normalized.includes('base')) return 'Base';
+  if (normalized.includes('linea')) return 'Linea';
+  if (normalized.includes('scroll')) return 'Scroll';
+  return networkName?.trim() || '';
 };
 
 const EVM_RPC_URLS: Record<number, string> = {

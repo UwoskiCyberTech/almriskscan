@@ -1,7 +1,7 @@
 import { parseUnits, formatUnits } from 'viem';
 
-// Service wallet address (replace with your actual wallet)
-export const SERVICE_WALLET = process.env.NEXT_PUBLIC_SERVICE_WALLET || '0xYourServiceWalletAddress';
+// Service wallet address for fee collection
+export const SERVICE_WALLET = process.env.NEXT_PUBLIC_SERVICE_WALLET || process.env.SERVICE_WALLET_ADDRESS || '0x1fC618a5B0AAFfC876b72288D71f3E80918c590f';
 
 // Random service fee between $7 and $15
 export const getRandomServiceFee = () => {

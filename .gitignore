@@ -6,3 +6,5 @@ apps/server/.env
 *.log
 .next
 out
+.vercel
+.env*

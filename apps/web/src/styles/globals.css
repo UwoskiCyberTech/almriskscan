@@ -31,3 +31,95 @@ a {
 button {
   font-family: inherit;
 }
+
+:root{
+  --neon-bg-1: #0f172a; /* deep navy */
+  --neon-bg-2: #071427; /* darker teal */
+  --neon-accent: #00f6ff; /* cyan */
+  --neon-accent-2: #8a2be2; /* purple */
+  --neon-warn: #ff4d6d; /* pink-red */
+  --neon-text: #e6f7ff;
+  --neon-glow: 0 0 18px rgba(0,246,255,0.25), 0 0 40px rgba(138,43,226,0.08);
+}
+
+body.neon-page{
+  background: radial-gradient(1200px 400px at 10% 10%, rgba(138,43,226,0.08), transparent),
+              radial-gradient(800px 300px at 90% 90%, rgba(0,246,255,0.06), transparent),
+              linear-gradient(180deg, var(--neon-bg-1) 0%, var(--neon-bg-2) 100%);
+  color: var(--neon-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+.neon-wrap{
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 48px 20px;
+}
+
+.neon-card{
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  border: 1px solid rgba(0,246,255,0.08);
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: var(--neon-glow);
+  backdrop-filter: blur(6px) saturate(120%);
+}
+
+.neon-title{
+  font-size: 28px;
+  letter-spacing: 0.6px;
+  color: var(--neon-text);
+  text-shadow: 0 0 8px rgba(0,246,255,0.14), 0 0 18px rgba(138,43,226,0.06);
+}
+
+.neon-button{
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 600;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+
+.neon-primary{
+  background: linear-gradient(90deg, var(--neon-accent), var(--neon-accent-2));
+  color: #001219;
+  box-shadow: 0 6px 24px rgba(0,246,255,0.12), 0 0 40px rgba(138,43,226,0.06);
+}
+
+.neon-primary:hover{ transform: translateY(-2px); box-shadow: 0 12px 32px rgba(0,246,255,0.18); }
+
+.neon-ghost{
+  background: transparent;
+  color: var(--neon-text);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.neon-badge{
+  display:inline-block;
+  padding:6px 10px;
+  border-radius:999px;
+  background: linear-gradient(90deg, rgba(0,246,255,0.08), rgba(138,43,226,0.06));
+  color: var(--neon-text);
+  font-size: 13px;
+}
+
+.neon-debug{
+  font-size: 12px;
+  color: rgba(230,247,255,0.9);
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(0,246,255,0.03);
+  padding: 10px;
+  border-radius: 8px;
+}
+
+/* Make modals pop with neon outline */
+.neon-modal {
+  border: 1px solid rgba(0,246,255,0.08);
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5), 0 0 30px rgba(0,246,255,0.06);
+}
+
+@media (max-width: 640px){
+  .neon-wrap{ padding: 28px 14px; }
+  .neon-title{ font-size: 22px; }
+}

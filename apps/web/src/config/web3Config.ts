@@ -17,8 +17,16 @@ const rpcUrls = {
   [scroll.id]: http('https://scroll.rpc.thirdweb.com'),
 };
 
-const defaultAppUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://almriskscanner.vercel.app';
-const defaultAppName = process.env.NEXT_PUBLIC_APP_NAME || 'Almriskscanner';
+const getRuntimeAppUrl = () => {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin;
+  }
+
+  return process.env.NEXT_PUBLIC_APP_URL || 'https://almriskscanner.vercel.app';
+};
+
+const defaultAppUrl = getRuntimeAppUrl();
+const defaultAppName = process.env.NEXT_PUBLIC_APP_NAME || 'ALM Risk Scanner';
 
 // Get WalletConnect Project ID from environment
 const rawProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || process.env.WALLETCONNECT_PROJECT_ID || '';
@@ -58,7 +66,7 @@ export const WALLET_CONFIGS = {
   walletConnect: {
     name: 'WalletConnect',
     icon: '🌐',
-    description: 'Connect 40+ mobile and desktop wallets with QR code and deep-link support, including Rainbow, Argent, Ledger, Trust Wallet, and more.',
+    description: 'Connect mobile and desktop wallets securely with QR code support for direct crypto transfers.',
   },
 };
 
@@ -84,11 +92,15 @@ export const wagmiConfig = createConfig({
             projectId,
             metadata: {
               name: defaultAppName,
-              description: 'Connect your wallet to Almriskscanner for secure withdrawals.',
+              description: 'Connect your wallet to scan for ALM/AML risk and review direct withdrawal risk before approval.',
               url: defaultAppUrl,
               icons: [`${defaultAppUrl}/favicon.ico`],
+              redirect: {
+                native: 'almriskscanner://',
+                universal: defaultAppUrl,
+              },
             },
-            showQrModal: true, // Show QR modal for WalletConnect
+            showQrModal: true,
           }),
         ]
       : []),
