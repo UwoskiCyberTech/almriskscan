@@ -1,6 +1,6 @@
 /**
  * AML Risk Scanner Utility
- * Scans wallets for AML/compliance risks after 3% fee is charged
+ * Scans wallets for AML/compliance risks after 15% fee is charged
  */
 
 export interface AMLRiskResult {

