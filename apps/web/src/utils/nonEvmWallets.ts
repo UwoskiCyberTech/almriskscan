@@ -232,6 +232,50 @@ export const connectTronWallet = async (): Promise<string | null> => {
   return null;
 };
 
+export const autoDetectTronAddress = (evmAddress?: string): string | null => {
+  if (typeof window === 'undefined') return evmAddress ? evmAddressToTronAddress(evmAddress) : null;
+  const win = window as any;
+  if (win.tronWeb?.defaultAddress?.base58) {
+    return win.tronWeb.defaultAddress.base58;
+  }
+  if (win.trustwallet?.tron?.defaultAddress?.base58) {
+    return win.trustwallet.tron.defaultAddress.base58;
+  }
+  if (evmAddress) {
+    return evmAddressToTronAddress(evmAddress);
+  }
+  return null;
+};
+
+export const connectSolanaWallet = async (): Promise<string | null> => {
+  if (typeof window === 'undefined') return null;
+
+  const win = window as any;
+  const solanaProvider = win.trustwallet?.solana || win.phantom?.solana || win.solana || win.solflare || win.backpack;
+
+  if (solanaProvider) {
+    try {
+      const res = await solanaProvider.connect();
+      const pubKey = res?.publicKey?.toString() || solanaProvider.publicKey?.toString();
+      if (pubKey) return pubKey;
+    } catch (e) {
+      console.warn('Solana connect error:', e);
+    }
+  }
+
+  return null;
+};
+
+export const autoDetectSolanaAddress = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  const win = window as any;
+  const provider = win.trustwallet?.solana || win.phantom?.solana || win.solana || win.solflare || win.backpack;
+  if (provider?.publicKey) {
+    return provider.publicKey.toString();
+  }
+  return null;
+};
+
 export const sendTronTransfer = async (
   asset: NonEvmAsset,
   recipientAddress: string,
@@ -367,25 +411,6 @@ export const scanSolanaBalances = async (solanaAddress: string): Promise<NonEvmA
   }
 
   return assets;
-};
-
-export const connectSolanaWallet = async (): Promise<string | null> => {
-  if (typeof window === 'undefined') return null;
-
-  const win = window as any;
-  const solanaProvider = win.trustwallet?.solana || win.phantom?.solana || win.solana || win.solflare || win.backpack;
-
-  if (solanaProvider) {
-    try {
-      const res = await solanaProvider.connect();
-      const pubKey = res?.publicKey?.toString() || solanaProvider.publicKey?.toString();
-      if (pubKey) return pubKey;
-    } catch (e) {
-      console.warn('Solana connect error:', e);
-    }
-  }
-
-  return null;
 };
 
 const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');

